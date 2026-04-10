@@ -1,78 +1,385 @@
-# Visual Studio Code - Open Source ("Code - OSS")
-[![Feature Requests](https://img.shields.io/github/issues/microsoft/vscode/feature-request.svg)](https://github.com/microsoft/vscode/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-request+sort%3Areactions-%2B1-desc)
-[![Bugs](https://img.shields.io/github/issues/microsoft/vscode/bug.svg)](https://github.com/microsoft/vscode/issues?utf8=✓&q=is%3Aissue+is%3Aopen+label%3Abug)
-[![Gitter](https://img.shields.io/badge/chat-on%20gitter-yellow.svg)](https://gitter.im/Microsoft/vscode)
+VSAgent — Developer README
 
-## The Repository
+Overview
 
-This repository ("`Code - OSS`") is where we (Microsoft) develop the [Visual Studio Code](https://code.visualstudio.com) product together with the community. Not only do we work on code and issues here, we also publish our [roadmap](https://github.com/microsoft/vscode/wiki/Roadmap), [monthly iteration plans](https://github.com/microsoft/vscode/wiki/Iteration-Plans), and our [endgame plans](https://github.com/microsoft/vscode/wiki/Running-the-Endgame). This source code is available to everyone under the standard [MIT license](https://github.com/microsoft/vscode/blob/main/LICENSE.txt).
+VSAgent is a modified Code OSS runtime that introduces a Sessions-based AI execution layer with a centralized control spine.
 
-## Visual Studio Code
+The system is designed so that all agent-driven mutations are explicit, typed, scoped, and auditable.
 
-<p align="center">
-  <img alt="VS Code in action" src="https://user-images.githubusercontent.com/35271042/118224532-3842c400-b438-11eb-923d-a5f66fa6785a.png">
-</p>
+This README explains how the system is structured and where to work when extending it.
 
-[Visual Studio Code](https://code.visualstudio.com) is a distribution of the `Code - OSS` repository with Microsoft-specific customizations released under a traditional [Microsoft product license](https://code.visualstudio.com/License/).
+⸻
 
-[Visual Studio Code](https://code.visualstudio.com) combines the simplicity of a code editor with what developers need for their core edit-build-debug cycle. It provides comprehensive code editing, navigation, and understanding support along with lightweight debugging, a rich extensibility model, and lightweight integration with existing tools.
+High-Level Architecture
 
-Visual Studio Code is updated monthly with new features and bug fixes. You can download it for Windows, macOS, and Linux on [Visual Studio Code's website](https://code.visualstudio.com/Download). To get the latest releases every day, install the [Insiders build](https://code.visualstudio.com/insiders).
+The system is split into three major layers:
 
-## Contributing
+1. Sessions Layer (src/vs/sessions)
 
-There are many ways in which you can participate in this project, for example:
+Owns:
+	•	UI (workbench, views)
+	•	session lifecycle
+	•	provider orchestration
+	•	agent interaction
 
-* [Submit bugs and feature requests](https://github.com/microsoft/vscode/issues), and help us verify as they are checked in
-* Review [source code changes](https://github.com/microsoft/vscode/pulls)
-* Review the [documentation](https://github.com/microsoft/vscode-docs) and make pull requests for anything from typos to additional and new content
+2. Action Spine (src/vs/sessions/services/actions)
 
-If you are interested in fixing issues and contributing directly to the code base,
-please see the document [How to Contribute](https://github.com/microsoft/vscode/wiki/How-to-Contribute), which covers the following:
+Owns:
+	•	execution authority
+	•	policy enforcement
+	•	approvals
+	•	receipts
 
-* [How to build and run from source](https://github.com/microsoft/vscode/wiki/How-to-Contribute)
-* [The development workflow, including debugging and running tests](https://github.com/microsoft/vscode/wiki/How-to-Contribute#debugging)
-* [Coding guidelines](https://github.com/microsoft/vscode/wiki/Coding-Guidelines)
-* [Submitting pull requests](https://github.com/microsoft/vscode/wiki/How-to-Contribute#pull-requests)
-* [Finding an issue to work on](https://github.com/microsoft/vscode/wiki/How-to-Contribute#where-to-contribute)
-* [Contributing to translations](https://aka.ms/vscodeloc)
+3. Substrate (existing VS Code + agent-host)
 
-## Feedback
+Owns:
+	•	actual file system access
+	•	terminal / command execution
+	•	git operations
+	•	remote host handling
 
-* Ask a question on [Stack Overflow](https://stackoverflow.com/questions/tagged/vscode)
-* [Request a new feature](CONTRIBUTING.md)
-* Upvote [popular feature requests](https://github.com/microsoft/vscode/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-request+sort%3Areactions-%2B1-desc)
-* [File an issue](https://github.com/microsoft/vscode/issues)
-* Connect with the extension author community on [GitHub Discussions](https://github.com/microsoft/vscode-discussions/discussions) or [Slack](https://aka.ms/vscode-dev-community)
-* Follow [@code](https://x.com/code) and let us know what you think!
+⸻
 
-See our [wiki](https://github.com/microsoft/vscode/wiki/Feedback-Channels) for a description of each of these channels and information on some other available community-driven channels.
+Core Execution Flow
 
-## Related Projects
+Every privileged action must follow this path:
 
-Many of the core components and extensions to VS Code live in their own repositories on GitHub. For example, the [node debug adapter](https://github.com/microsoft/vscode-node-debug) and the [mono debug adapter](https://github.com/microsoft/vscode-mono-debug) repositories are separate from each other. For a complete list, please visit the [Related Projects](https://github.com/microsoft/vscode/wiki/Related-Projects) page on our [wiki](https://github.com/microsoft/vscode/wiki).
+Session → SessionActionService.submitAction()
 
-## Bundled Extensions
+1. Normalize Action
+2. Normalize Scope (paths, cwd, host)
+3. Fetch Provider Capabilities
+4. Apply Policy (allow / deny / require approval)
+5. Request Approval (if needed)
+6. Execute via Executor Bridge
+7. Append Receipt
+8. Emit Result to Session
 
-VS Code includes a set of built-in extensions located in the [extensions](extensions) folder, including grammars and snippets for many languages. Extensions that provide rich language support (inline suggestions, Go to Definition) for a language have the suffix `language-features`. For example, the `json` extension provides coloring for `JSON` and the `json-language-features` extension provides rich language support for `JSON`.
+No direct mutation should bypass this path.
 
-## Development Container
+⸻
 
-This repository includes a Visual Studio Code Dev Containers / GitHub Codespaces development container.
+Directory Map
 
-* For [Dev Containers](https://aka.ms/vscode-remote/download/containers), use the **Dev Containers: Clone Repository in Container Volume...** command which creates a Docker volume for better disk I/O on macOS and Windows.
-  * If you already have VS Code and Docker installed, you can also click [here](https://vscode.dev/redirect?url=vscode://ms-vscode-remote.remote-containers/cloneInVolume?url=https://github.com/microsoft/vscode) to get started. This will cause VS Code to automatically install the Dev Containers extension if needed, clone the source code into a container volume, and spin up a dev container for use.
+Sessions Core
 
-* For Codespaces, install the [GitHub Codespaces](https://marketplace.visualstudio.com/items?itemName=GitHub.codespaces) extension in VS Code, and use the **Codespaces: Create New Codespace** command.
+src/vs/sessions/
+  services/
+    sessions/
+      common/
+        sessionsProvider.ts
+      browser/
+        sessionsProvidersService.ts
+        sessionsManagementService.ts
 
-Docker / the Codespace should have at least **4 Cores and 6 GB of RAM (8 GB recommended)** to run a full build. See the [development container README](.devcontainer/README.md) for more information.
+Responsibilities:
+	•	register providers
+	•	manage active sessions
+	•	route session requests
 
-## Code of Conduct
+⸻
 
-This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/). For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
+Action Spine
 
-## License
+src/vs/sessions/services/actions/
+  common/
+    sessionActionTypes.ts
+    sessionActionPolicy.ts
+    sessionActionScope.ts
+    sessionActionReceipts.ts
 
-Copyright (c) Microsoft Corporation. All rights reserved.
+  browser/
+    sessionActionService.ts
+    sessionActionPolicyService.ts
+    sessionActionApprovalService.ts
+    sessionActionExecutorBridge.ts
+    sessionActionReceiptService.ts
+    sessionActionScopeService.ts
 
-Licensed under the [MIT](LICENSE.txt) license.
+Responsibilities:
+	•	define action model
+	•	enforce policy
+	•	handle approvals
+	•	execute actions
+	•	log receipts
+
+⸻
+
+Providers
+
+src/vs/sessions/contrib/
+  copilotChatSessions/
+  localAgentHost/
+  remoteAgentHost/
+
+Responsibilities:
+	•	session discovery
+	•	backend routing
+	•	capability declaration
+
+Providers must NOT execute privileged actions directly.
+
+⸻
+
+UI / Views
+
+src/vs/sessions/contrib/
+  sessions/
+  chat/
+  logs/
+  files/
+  terminal/
+  workspace/
+
+These layers:
+	•	display state
+	•	trigger actions
+	•	render receipts and approvals
+
+They must not contain execution logic.
+
+⸻
+
+Key Services
+
+SessionActionService
+
+Location:
+
+services/actions/browser/sessionActionService.ts
+
+This is the authority boundary.
+
+All privileged operations must go through here.
+
+If you find code that:
+	•	writes files
+	•	runs commands
+	•	mutates git
+outside this service, it is a bug.
+
+⸻
+
+SessionActionPolicyService
+
+Handles:
+	•	allowed paths
+	•	command restrictions
+	•	host constraints
+	•	approval requirements
+
+Rules:
+	•	deny on ambiguity
+	•	stricter rule wins
+	•	no implicit widening
+
+⸻
+
+SessionActionApprovalService
+
+Builds structured approval payloads.
+
+Must include:
+	•	exact command or mutation
+	•	scope
+	•	provider + host
+	•	risk classification
+
+Never approve vague actions.
+
+⸻
+
+SessionActionExecutorBridge
+
+Thin adapter to underlying systems.
+
+Rules:
+	•	no policy logic
+	•	no approval logic
+	•	no scope expansion
+
+Only:
+
+approved action → execution → result
+
+
+⸻
+
+SessionActionReceiptService
+
+Append-only log per session.
+
+Receipts include:
+	•	action type
+	•	scope
+	•	provider
+	•	approval metadata
+	•	execution result
+
+This is the source of truth for:
+	•	audit
+	•	debugging
+	•	memory
+
+⸻
+
+Provider Capability Model
+
+Defined in:
+
+sessionsProvider.ts
+
+Providers must declare:
+	•	canReadWorkspace
+	•	canWriteWorkspace
+	•	canRunCommands
+	•	canMutateGit
+	•	canOpenWorktrees
+	•	canUseExternalTools
+	•	requiresApprovalForWrites
+	•	requiresApprovalForCommands
+	•	hostKind
+
+Execution requires:
+
+Action Allowed = 
+  Provider Capability
+  AND Policy Allow
+  AND (Approval if required)
+
+
+⸻
+
+Scope Model
+
+All actions operate on normalized scope:
+	•	workspace root
+	•	repo path
+	•	worktree root
+	•	cwd
+	•	file paths
+	•	host target (local / remote)
+
+Invalid scope results in denial.
+
+No fallback behavior.
+
+⸻
+
+Action Types
+
+Defined in:
+
+sessionActionTypes.ts
+
+Supported actions:
+	•	searchWorkspace
+	•	readFile
+	•	writePatch
+	•	runCommand
+	•	gitStatus
+	•	gitDiff
+	•	openWorktree
+
+To add a new action:
+	1.	define type
+	2.	extend policy
+	3.	extend executor bridge
+	4.	add receipt mapping
+	5.	add tests
+
+⸻
+
+Rules for Adding Features
+
+DO
+	•	use SessionActionService
+	•	define typed actions
+	•	normalize scope first
+	•	enforce policy before execution
+	•	emit receipts
+
+DO NOT
+	•	call filesystem APIs directly
+	•	run commands directly
+	•	mutate git outside the action spine
+	•	rely on prompts for permissions
+	•	bypass approval logic
+
+⸻
+
+Prompt / Skill System
+
+Location:
+
+contrib/chat/browser/promptsService.ts
+skills/*
+
+Used for:
+	•	planning
+	•	workflow hints
+	•	repo conventions
+
+Not used for:
+	•	permissions
+	•	execution authority
+
+All prompts are advisory.
+
+⸻
+
+Action Log (Receipts)
+
+Receipts are the system’s audit trail.
+
+Used for:
+	•	debugging
+	•	replay
+	•	memory systems
+	•	operator visibility
+
+Future systems should build on receipts, not chat logs.
+
+⸻
+
+Testing Strategy
+
+Focus on enforcement, not UI.
+
+Required coverage:
+	•	action denied without capability
+	•	action denied by policy
+	•	approval-required action blocks
+	•	approved action executes
+	•	receipts are appended correctly
+	•	scope violations are denied
+	•	prompts do not widen authority
+
+⸻
+
+Development Workflow
+
+When modifying the system:
+	1.	Start at action types
+	2.	update policy
+	3.	update executor bridge
+	4.	ensure receipts include new data
+	5.	patch callers to use submitAction
+	6.	add tests
+
+Never start from UI.
+
+⸻
+
+Mental Model
+
+Think of this system as:
+	•	Sessions = UI + orchestration
+	•	Action Spine = control plane
+	•	Providers = execution backends
+	•	Substrate = raw capabilities
+
+Your job is to keep:
+
+control centralized and explicit
+
