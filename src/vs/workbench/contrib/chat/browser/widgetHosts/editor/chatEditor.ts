@@ -28,7 +28,6 @@ import { IEditorGroup, IEditorGroupsService } from '../../../../../services/edit
 import { IEditorService } from '../../../../../services/editor/common/editorService.js';
 import { ChatContextKeys } from '../../../common/actions/chatContextKeys.js';
 import { IChatModel, IChatModelInputState, IExportableChatData, ISerializableChatData } from '../../../common/model/chatModel.js';
-import { IChatService } from '../../../common/chatService/chatService.js';
 import { IChatSessionsService, localChatSessionType } from '../../../common/chatSessionsService.js';
 import { ChatAgentLocation, ChatModeKind } from '../../../common/constants.js';
 import { clearChatEditor } from '../../actions/chatClear.js';
@@ -77,7 +76,6 @@ export class ChatEditor extends AbstractEditorWithViewState<IChatEditorViewState
 		@IStorageService storageService: IStorageService,
 		@IChatSessionsService private readonly chatSessionsService: IChatSessionsService,
 		@IContextKeyService private readonly contextKeyService: IContextKeyService,
-		@IChatService private readonly chatService: IChatService,
 		@ITextResourceConfigurationService textResourceConfigurationService: ITextResourceConfigurationService,
 		@IEditorService editorService: IEditorService,
 		@IEditorGroupsService editorGroupService: IEditorGroupsService,
@@ -260,7 +258,7 @@ export class ChatEditor extends AbstractEditorWithViewState<IChatEditorViewState
 			}
 
 			if (isContributedChatSession && options?.title?.preferred && input.sessionResource) {
-				this.chatService.setChatSessionTitle(input.sessionResource, options.title.preferred);
+				await this.chatSessionsService.renameChatSession?.(input.sessionResource, options.title.preferred);
 			}
 		} catch (error) {
 			this.hideLoadingInChatWidget();

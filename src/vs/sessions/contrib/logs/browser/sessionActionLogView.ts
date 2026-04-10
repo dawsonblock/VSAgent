@@ -279,11 +279,17 @@ export function getSessionActionLogDetailItems(receipt: SessionActionReceipt): r
 	pushDetail(localize('sessionActionLog.detail.cwd', "Cwd"), receipt.cwd?.toString());
 	pushDetail(localize('sessionActionLog.detail.repository', "Repository"), receipt.repositoryPath?.toString());
 	pushDetail(localize('sessionActionLog.detail.worktree', "Worktree"), receipt.worktreePath?.toString());
+	pushDetail(localize('sessionActionLog.detail.command', "Command"), receipt.command);
+	pushDetail(localize('sessionActionLog.detail.arguments', "Arguments"), receipt.args?.join('\n'));
+	pushDetail(localize('sessionActionLog.detail.branch', "Branch"), receipt.branch);
+	pushDetail(localize('sessionActionLog.detail.approvalSummary', "Approval Summary"), receipt.approvalSummary);
+	pushDetail(localize('sessionActionLog.detail.approvalFingerprint', "Approval Fingerprint"), receipt.approvalFingerprint);
 	pushDetail(localize('sessionActionLog.detail.approval', "Approval"), formatApproval(receipt));
+	pushDetail(localize('sessionActionLog.detail.denialReason', "Denial Reason"), receipt.denialReason);
 	pushDetail(localize('sessionActionLog.detail.denial', "Denial"), formatDenial(receipt));
 	pushDetail(localize('sessionActionLog.detail.filesTouched', "Touched Files"), receipt.filesTouched.length > 0 ? receipt.filesTouched.map(file => file.toString()).join('\n') : undefined);
-	pushDetail(localize('sessionActionLog.detail.stdout', "Stdout"), receipt.stdoutExcerpt);
-	pushDetail(localize('sessionActionLog.detail.stderr', "Stderr"), receipt.stderrExcerpt);
+	pushDetail(localize('sessionActionLog.detail.stdout', "Stdout"), receipt.stdout);
+	pushDetail(localize('sessionActionLog.detail.stderr', "Stderr"), receipt.stderr);
 	pushDetail(localize('sessionActionLog.detail.advisorySources', "Advisory Sources"), receipt.advisorySources.length > 0 ? receipt.advisorySources.join(', ') : undefined);
 	pushDetail(localize('sessionActionLog.detail.error', "Error"), receipt.error?.message);
 	return details;
@@ -370,15 +376,15 @@ function formatApproval(receipt: SessionActionReceipt): string | undefined {
 		return undefined;
 	}
 
-	const parts = [receipt.approval.summary, receipt.approval.fingerprint, receipt.approval.source].filter((value): value is string => !!value);
+	const parts = [receipt.approvalSummary, receipt.approvalFingerprint, receipt.approval.source].filter((value): value is string => !!value);
 	return parts.join(' | ');
 }
 
 function formatDenial(receipt: SessionActionReceipt): string | undefined {
-	if (!receipt.denial) {
+	if (!receipt.denial && !receipt.denialReason) {
 		return undefined;
 	}
 
-	const parts = [receipt.denial.reason, receipt.denial.message, receipt.denial.blockedCommand, receipt.denial.blockedPath?.toString()].filter((value): value is string => !!value);
+	const parts = [receipt.denialReason ?? receipt.denial?.reason, receipt.denial?.message, receipt.denial?.blockedCommand, receipt.denial?.blockedPath?.toString()].filter((value): value is string => !!value);
 	return parts.join(' | ');
 }

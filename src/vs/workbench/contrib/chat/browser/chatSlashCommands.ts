@@ -14,7 +14,6 @@ import { IInstantiationService } from '../../../../platform/instantiation/common
 import { IChatAgentService } from '../common/participants/chatAgents.js';
 import { ChatContextKeys } from '../common/actions/chatContextKeys.js';
 import { IChatSlashCommandService } from '../common/participants/chatSlashCommands.js';
-import { IChatService } from '../common/chatService/chatService.js';
 import { ChatAgentLocation, ChatConfiguration, ChatModeKind, ChatPermissionLevel } from '../common/constants.js';
 import { ACTION_ID_NEW_CHAT } from './actions/chatActions.js';
 import { ChatSubmitAction, OpenModePickerAction, OpenModelPickerAction } from './actions/chatExecuteActions.js';
@@ -41,7 +40,6 @@ export class ChatSlashCommandsContribution extends Disposable {
 		@IChatAgentService chatAgentService: IChatAgentService,
 		@IInstantiationService instantiationService: IInstantiationService,
 		@IAgentSessionsService agentSessionsService: IAgentSessionsService,
-		@IChatService chatService: IChatService,
 		@IConfigurationService configurationService: IConfigurationService,
 		@IChatWidgetService chatWidgetService: IChatWidgetService,
 		@IWorkbenchEnvironmentService private readonly environmentService: IWorkbenchEnvironmentService,
@@ -182,7 +180,7 @@ export class ChatSlashCommandsContribution extends Disposable {
 		}, async (prompt, _progress, _history, _location, sessionResource) => {
 			const title = prompt.trim();
 			if (title) {
-				chatService.setChatSessionTitle(sessionResource, title);
+				await agentSessionsService.renameSession(sessionResource, title);
 			}
 		}));
 		const setPermissionLevelForSession = (sessionResource: URI, level: ChatPermissionLevel) => {

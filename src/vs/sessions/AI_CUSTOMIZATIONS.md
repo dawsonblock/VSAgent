@@ -70,6 +70,8 @@ The `IAICustomizationWorkspaceService` interface controls per-window behavior:
 
 In Sessions, the AI Customization workspace service does not allow the UI to override the active project root. Prompt discovery, file creation, save flows, and git-backed customization commits stay anchored to the active session root so folder browsing cannot widen execution authority.
 
+For local project customizations in Sessions, destructive deletes run through `IAICustomizationWorkspaceService.deleteFiles()` and the Sessions action service before the UI refreshes. The management editor does not pre-delete active-session files on disk and then try to reconcile them afterward.
+
 ### ICustomizationHarnessService
 
 A harness represents the AI execution environment that consumes customizations.

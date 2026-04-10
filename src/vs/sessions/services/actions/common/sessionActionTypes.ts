@@ -205,18 +205,21 @@ export interface WritePatchActionResult extends SessionActionResultBase {
 
 export interface RunCommandActionResult extends SessionActionResultBase {
 	readonly kind: SessionActionKind.RunCommand;
+	readonly command: string;
+	readonly args: readonly string[];
+	readonly cwd?: URI;
 	readonly commandLine: string;
 	readonly exitCode?: number;
-	readonly stdoutExcerpt?: string;
-	readonly stderrExcerpt?: string;
+	readonly stdout?: string;
+	readonly stderr?: string;
 	readonly value?: SessionActionValue;
 }
 
 export interface GitActionResult extends SessionActionResultBase {
 	readonly kind: SessionActionKind.GitStatus | SessionActionKind.GitDiff;
 	readonly repository: URI;
-	readonly stdoutExcerpt?: string;
-	readonly stderrExcerpt?: string;
+	readonly stdout?: string;
+	readonly stderr?: string;
 	readonly value?: SessionActionValue;
 }
 
@@ -224,7 +227,10 @@ export interface OpenWorktreeActionResult extends SessionActionResultBase {
 	readonly kind: SessionActionKind.OpenWorktree;
 	readonly repository: URI;
 	readonly worktreePath?: URI;
+	readonly branch?: string;
 	readonly opened?: boolean;
+	readonly stdout?: string;
+	readonly stderr?: string;
 	readonly value?: SessionActionValue;
 }
 

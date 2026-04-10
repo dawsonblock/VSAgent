@@ -52,6 +52,12 @@ interface ISetReadCommandArgs extends ISessionMutationCommandArgs {
 	readonly read: boolean;
 }
 
+interface ISessionsProviderDirectMutationExecutor extends ISessionsProvider {
+	deleteSessionDirect?(sessionId: string): Promise<void>;
+	deleteChatDirect?(sessionId: string, chatUri: URI): Promise<void>;
+	renameChatDirect?(sessionId: string, chatUri: URI, title: string): Promise<void>;
+}
+
 export class SessionsManagementService extends Disposable implements ISessionsManagementService {
 
 	declare readonly _serviceBrand: undefined;
@@ -512,15 +518,35 @@ CommandsRegistry.registerCommand(SessionsManagementCommandId.UnarchiveSession, a
 });
 
 CommandsRegistry.registerCommand(SessionsManagementCommandId.DeleteSession, async (accessor, args: ISessionMutationCommandArgs) => {
-	await getSessionsProvider(accessor.get(ISessionsProvidersService), args.providerId).deleteSession(args.sessionId);
+	const provider = getSessionsProvider(accessor.get(ISessionsProvidersService), args.providerId) as ISessionsProviderDirectMutationExecutor;
+	if (provider.deleteSessionDirect) {
+		await provider.deleteSessionDirect(args.sessionId);
+		return;
+	}
+
+	await provider.deleteSession(args.sessionId);
 });
 
 CommandsRegistry.registerCommand(SessionsManagementCommandId.DeleteChat, async (accessor, args: IChatMutationCommandArgs) => {
-	await getSessionsProvider(accessor.get(ISessionsProvidersService), args.providerId).deleteChat(args.sessionId, URI.revive(args.chatUri));
+	const provider = getSessionsProvider(accessor.get(ISessionsProvidersService), args.providerId) as ISessionsProviderDirectMutationExecutor;
+	const chatUri = URI.revive(args.chatUri);
+	if (provider.deleteChatDirect) {
+		await provider.deleteChatDirect(args.sessionId, chatUri);
+		return;
+	}
+
+	await provider.deleteChat(args.sessionId, chatUri);
 });
 
 CommandsRegistry.registerCommand(SessionsManagementCommandId.RenameChat, async (accessor, args: IRenameChatCommandArgs) => {
-	await getSessionsProvider(accessor.get(ISessionsProvidersService), args.providerId).renameChat(args.sessionId, URI.revive(args.chatUri), args.title);
+	const provider = getSessionsProvider(accessor.get(ISessionsProvidersService), args.providerId) as ISessionsProviderDirectMutationExecutor;
+	const chatUri = URI.revive(args.chatUri);
+	if (provider.renameChatDirect) {
+		await provider.renameChatDirect(args.sessionId, chatUri, args.title);
+		return;
+	}
+
+	await provider.renameChat(args.sessionId, chatUri, args.title);
 });
 
 CommandsRegistry.registerCommand(SessionsManagementCommandId.SetRead, (accessor, args: ISetReadCommandArgs) => {

@@ -240,6 +240,10 @@ export interface IChatSessionItemController {
 	setChatSessionArchived?(sessionResource: URI, archived: boolean): boolean;
 
 	setChatSessionRead?(sessionResource: URI, read: boolean): boolean;
+
+	renameChatSession?(sessionResource: URI, title: string): Promise<boolean>;
+
+	deleteChatSession?(sessionResource: URI): Promise<boolean>;
 }
 
 export interface IChatSessionOptionsChangeEvent {
@@ -375,6 +379,10 @@ export interface IChatSessionsService {
 	setChatSessionArchived?(sessionResource: URI, archived: boolean): boolean;
 
 	setChatSessionRead?(sessionResource: URI, read: boolean): boolean;
+
+	renameChatSession?(sessionResource: URI, title: string): Promise<boolean>;
+
+	deleteChatSession?(sessionResource: URI): Promise<boolean>;
 
 	/** @deprecated Use `getChatSessionItems` */
 	getInProgress(): { chatSessionType: string; count: number }[];

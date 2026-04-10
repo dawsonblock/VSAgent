@@ -112,8 +112,8 @@ Providers also declare a conservative `capabilities` object. These values are tr
 | `canReadWorkspace` | `boolean` | Whether mediated workspace reads are allowed |
 | `canWriteWorkspace` | `boolean` | Whether mediated workspace writes are allowed |
 | `canRunCommands` | `boolean` | Whether mediated commands or tasks are allowed |
-| `canMutateGit` | `boolean` | Whether mediated git mutation is allowed |
-| `canOpenWorktrees` | `boolean` | Whether mediated worktree mutation is allowed |
+| `canMutateGit` | `boolean` | Whether mediated `gitStatus` / `gitDiff` inspection and git mutation are allowed |
+| `canOpenWorktrees` | `boolean` | Whether mediated worktree actions are allowed; this is evaluated independently from `canMutateGit` |
 | `canUseExternalTools` | `boolean` | Whether mediated external-tool execution is allowed |
 | `requiresApprovalForWrites` | `boolean` | Whether non-user writes require approval |
 | `requiresApprovalForCommands` | `boolean` | Whether non-user commands require approval |
@@ -121,6 +121,8 @@ Providers also declare a conservative `capabilities` object. These values are tr
 | `requiresApprovalForWorktreeActions` | `boolean` | Whether mediated worktree actions require approval |
 | `supportsStructuredApprovals` | `boolean` | Whether the provider participates in structured approval payloads |
 | `supportsReceiptMetadata` | `boolean` | Whether the provider participates in structured receipt metadata |
+
+Capability checks are action-kind specific and are evaluated before policy approval/execution. There is no inference across capabilities: git actions require `canMutateGit`, worktree actions require `canOpenWorktrees`, and command execution requires `canRunCommands`.
 
 #### Workspace Discovery
 

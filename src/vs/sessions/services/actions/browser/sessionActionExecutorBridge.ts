@@ -9,15 +9,12 @@ import { InstantiationType, registerSingleton } from '../../../../platform/insta
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
-import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
-import { ITaskService } from '../../../../workbench/contrib/tasks/common/taskService.js';
-import { TaskRunSource } from '../../../../workbench/contrib/tasks/common/tasks.js';
 import { IGitService } from '../../../../workbench/contrib/git/common/gitService.js';
 import { ISearchService, ITextQuery, QueryType, resultIsMatch } from '../../../../workbench/services/search/common/search.js';
 import { localize } from '../../../../nls.js';
 import { NormalizedSessionActionScope } from '../common/sessionActionScope.js';
-import { GitDiffAction, GitStatusAction, OpenWorktreeAction, ReadFileAction, RunCommandAction, SearchWorkspaceAction, SessionAction, SessionActionKind, SessionActionResult, SessionActionStatus, SessionCommandLaunchKind, WritePatchAction } from '../common/sessionActionTypes.js';
+import { GitDiffAction, GitStatusAction, OpenWorktreeAction, ReadFileAction, RunCommandAction, SearchWorkspaceAction, SessionAction, SessionActionDenialReason, SessionActionKind, SessionActionResult, SessionActionStatus, SessionCommandLaunchKind, WritePatchAction } from '../common/sessionActionTypes.js';
 
 export interface ISessionActionExecutorBridge {
 	readonly _serviceBrand: undefined;
@@ -33,8 +30,6 @@ export class SessionActionExecutorBridge implements ISessionActionExecutorBridge
 
 	constructor(
 		@ICommandService private readonly _commandService: ICommandService,
-		@ITaskService private readonly _taskService: ITaskService,
-		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
 		@IFileService private readonly _fileService: IFileService,
 		@IGitService private readonly _gitService: IGitService,
 		@ISearchService private readonly _searchService: ISearchService,
@@ -83,6 +78,8 @@ export class SessionActionExecutorBridge implements ISessionActionExecutorBridge
 				actionId: action.id ?? 'unknown',
 				kind: SessionActionKind.SearchWorkspace,
 				status: SessionActionStatus.Failed,
+				denialReason: SessionActionDenialReason.InvalidPathScope,
+				denialMessage: 'Could not search because no workspace root was resolved for the Sessions action.',
 				advisorySources: action.advisorySources ?? [],
 				summary: localize('sessionActionExecutorBridge.searchWorkspaceMissingRoot', "Could not search because no workspace root was resolved for the Sessions action."),
 			};
@@ -159,6 +156,8 @@ export class SessionActionExecutorBridge implements ISessionActionExecutorBridge
 				actionId: action.id ?? 'unknown',
 				kind: SessionActionKind.WritePatch,
 				status: SessionActionStatus.Failed,
+				denialReason: SessionActionDenialReason.UnsupportedAction,
+				denialMessage: 'Could not apply the requested write because no file operations were provided.',
 				advisorySources: action.advisorySources ?? [],
 				filesTouched: action.files,
 				applied: false,
@@ -192,68 +191,81 @@ export class SessionActionExecutorBridge implements ISessionActionExecutorBridge
 	}
 
 	private async _runCommand(action: RunCommandAction, scope: NormalizedSessionActionScope): Promise<SessionActionResult> {
+		const args = this._toCommandArgs(action.args);
+		const cwd = action.cwd ?? scope.cwd?.path ?? scope.worktreeRoot?.path ?? scope.repositoryPath?.path ?? scope.workspaceRoot?.path;
+		const commandLine = this._toCommandLine(action.command, action.args);
+
 		if (action.launchKind === SessionCommandLaunchKind.Task) {
-			const cwd = scope.cwd?.path;
-			if (!cwd) {
-				return {
-					actionId: action.id ?? 'unknown',
-					kind: SessionActionKind.RunCommand,
-					status: SessionActionStatus.Failed,
-					advisorySources: action.advisorySources ?? [],
-					commandLine: action.command,
-					stderrExcerpt: 'No working directory was resolved for the task run.',
-					summary: localize('sessionActionExecutorBridge.taskMissingCwd', "Could not run task because no working directory was resolved."),
-				};
-			}
+			return {
+				actionId: action.id ?? 'unknown',
+				kind: SessionActionKind.RunCommand,
+				status: SessionActionStatus.Failed,
+				denialReason: SessionActionDenialReason.UnsupportedAction,
+				denialMessage: 'Task-backed command execution is not yet supported because Sessions cannot capture authoritative stdout, stderr, and exit codes.',
+				advisorySources: action.advisorySources ?? [],
+				command: action.command,
+				args,
+				cwd,
+				commandLine,
+				stderr: 'Task-backed command execution is not yet supported because Sessions cannot capture authoritative stdout, stderr, and exit codes.',
+				summary: localize('sessionActionExecutorBridge.taskUnsupported', "Task-backed command execution is not yet supported because Sessions cannot capture authoritative stdout, stderr, and exit codes."),
+			};
+		}
 
-			const workspaceFolder = this._workspaceContextService.getWorkspaceFolder(cwd);
-			if (!workspaceFolder) {
-				return {
-					actionId: action.id ?? 'unknown',
-					kind: SessionActionKind.RunCommand,
-					status: SessionActionStatus.Failed,
-					advisorySources: action.advisorySources ?? [],
-					commandLine: action.command,
-					stderrExcerpt: 'No workspace folder was found for the task run.',
-					summary: localize('sessionActionExecutorBridge.taskMissingFolder', "Could not run task because no workspace folder was found for the resolved cwd."),
-				};
-			}
+		if (action.launchKind === SessionCommandLaunchKind.Terminal) {
+			return {
+				actionId: action.id ?? 'unknown',
+				kind: SessionActionKind.RunCommand,
+				status: SessionActionStatus.Failed,
+				denialReason: SessionActionDenialReason.UnsupportedAction,
+				denialMessage: 'Terminal-backed command execution is not yet supported because Sessions cannot capture authoritative stdout, stderr, and exit codes.',
+				advisorySources: action.advisorySources ?? [],
+				command: action.command,
+				args,
+				cwd,
+				commandLine,
+				stderr: 'Terminal-backed command execution is not yet supported because Sessions cannot capture authoritative stdout, stderr, and exit codes.',
+				summary: localize('sessionActionExecutorBridge.terminalUnsupported', "Terminal-backed command execution is not yet supported because Sessions cannot capture authoritative stdout, stderr, and exit codes."),
+			};
+		}
 
-			const taskLabel = action.taskLabel ?? action.command;
-			const task = await this._taskService.getTask(workspaceFolder, taskLabel);
-			if (!task) {
-				return {
-					actionId: action.id ?? 'unknown',
-					kind: SessionActionKind.RunCommand,
-					status: SessionActionStatus.Failed,
-					advisorySources: action.advisorySources ?? [],
-					commandLine: action.command,
-					stderrExcerpt: `Task '${taskLabel}' was not found.`,
-					summary: localize('sessionActionExecutorBridge.taskNotFound', "Could not run task '{0}' because it was not found in the workspace folder.", taskLabel),
-				};
-			}
-
-			await this._taskService.run(task, undefined, TaskRunSource.User);
+		try {
+			const value = await this._commandService.executeCommand(action.command, ...(action.args ?? []));
+			const stdout = this._serializeValue(value) ?? '';
 			return {
 				actionId: action.id ?? 'unknown',
 				kind: SessionActionKind.RunCommand,
 				status: SessionActionStatus.Executed,
 				advisorySources: action.advisorySources ?? [],
-				commandLine: action.command,
-				summary: localize('sessionActionExecutorBridge.taskSummary', "Queued task '{0}' for execution.", taskLabel),
+				command: action.command,
+				args,
+				cwd,
+				commandLine,
+				exitCode: 0,
+				stdout,
+				stderr: '',
+				value: value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'object' ? value : undefined,
+				summary: localize('sessionActionExecutorBridge.commandSummary', "Executed command '{0}'.", action.command),
+			};
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'An unknown error occurred while executing the command.';
+			return {
+				actionId: action.id ?? 'unknown',
+				kind: SessionActionKind.RunCommand,
+				status: SessionActionStatus.Failed,
+				denialReason: SessionActionDenialReason.ExecutionFailed,
+				denialMessage: message,
+				advisorySources: action.advisorySources ?? [],
+				command: action.command,
+				args,
+				cwd,
+				commandLine,
+				exitCode: 1,
+				stdout: '',
+				stderr: message,
+				summary: localize('sessionActionExecutorBridge.commandFailed', "Command '{0}' failed.", action.command),
 			};
 		}
-
-		const value = await this._commandService.executeCommand(action.command, ...(action.args ?? []));
-		return {
-			actionId: action.id ?? 'unknown',
-			kind: SessionActionKind.RunCommand,
-			status: SessionActionStatus.Executed,
-			advisorySources: action.advisorySources ?? [],
-			commandLine: this._toCommandLine(action.command, action.args),
-			value: value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'object' ? value : undefined,
-			summary: localize('sessionActionExecutorBridge.commandSummary', "Executed command '{0}'.", action.command),
-		};
 	}
 
 	private async _gitStatus(action: GitStatusAction): Promise<SessionActionResult> {
@@ -263,9 +275,11 @@ export class SessionActionExecutorBridge implements ISessionActionExecutorBridge
 				actionId: action.id ?? 'unknown',
 				kind: SessionActionKind.GitStatus,
 				status: SessionActionStatus.Failed,
+				denialReason: SessionActionDenialReason.ExecutionFailed,
+				denialMessage: localize('sessionActionExecutorBridge.gitStatusRepositoryMissingError', "No git repository was found at '{0}'.", action.repository.toString()),
 				advisorySources: action.advisorySources ?? [],
 				repository: action.repository,
-				stderrExcerpt: localize('sessionActionExecutorBridge.gitStatusRepositoryMissingError', "No git repository was found at '{0}'.", action.repository.toString()),
+				stderr: localize('sessionActionExecutorBridge.gitStatusRepositoryMissingError', "No git repository was found at '{0}'.", action.repository.toString()),
 				summary: localize('sessionActionExecutorBridge.gitStatusRepositoryMissing', "Could not inspect git status because no repository was found for the Sessions action."),
 			};
 		}
@@ -285,7 +299,8 @@ export class SessionActionExecutorBridge implements ISessionActionExecutorBridge
 			status: SessionActionStatus.Executed,
 			advisorySources: action.advisorySources ?? [],
 			repository: action.repository,
-			stdoutExcerpt: JSON.stringify(value),
+			stdout: JSON.stringify(value, undefined, 2),
+			stderr: '',
 			value,
 			summary: localize('sessionActionExecutorBridge.gitStatusSummary', "Inspected git status for '{0}'.", action.repository.toString()),
 		};
@@ -298,9 +313,11 @@ export class SessionActionExecutorBridge implements ISessionActionExecutorBridge
 				actionId: action.id ?? 'unknown',
 				kind: SessionActionKind.GitDiff,
 				status: SessionActionStatus.Failed,
+				denialReason: SessionActionDenialReason.ExecutionFailed,
+				denialMessage: localize('sessionActionExecutorBridge.gitDiffRepositoryMissingError', "No git repository was found at '{0}'.", action.repository.toString()),
 				advisorySources: action.advisorySources ?? [],
 				repository: action.repository,
-				stderrExcerpt: localize('sessionActionExecutorBridge.gitDiffRepositoryMissingError', "No git repository was found at '{0}'.", action.repository.toString()),
+				stderr: localize('sessionActionExecutorBridge.gitDiffRepositoryMissingError', "No git repository was found at '{0}'.", action.repository.toString()),
 				summary: localize('sessionActionExecutorBridge.gitDiffRepositoryMissing', "Could not inspect git diff because no repository was found for the Sessions action."),
 			};
 		}
@@ -319,21 +336,28 @@ export class SessionActionExecutorBridge implements ISessionActionExecutorBridge
 			status: SessionActionStatus.Executed,
 			advisorySources: action.advisorySources ?? [],
 			repository: action.repository,
-			stdoutExcerpt: value.map(change => `${change.uri} (+${change.insertions}/-${change.deletions})`).join('\n'),
+			stdout: value.map(change => `${change.uri} (+${change.insertions}/-${change.deletions})`).join('\n'),
+			stderr: '',
 			value,
 			summary: localize('sessionActionExecutorBridge.gitDiffSummary', "Inspected git diff for '{0}' against '{1}'.", action.repository.toString(), ref),
 		};
 	}
 
 	private async _openWorktree(action: OpenWorktreeAction): Promise<SessionActionResult> {
+		const stderr = 'Worktree creation is not yet supported by the Sessions executor bridge.';
 		return {
 			actionId: action.id ?? 'unknown',
 			kind: SessionActionKind.OpenWorktree,
 			status: SessionActionStatus.Failed,
+			denialReason: SessionActionDenialReason.UnsupportedAction,
+			denialMessage: stderr,
 			advisorySources: action.advisorySources ?? [],
 			repository: action.repository,
 			worktreePath: action.worktreePath,
+			branch: action.branch,
 			opened: false,
+			stdout: '',
+			stderr,
 			summary: localize('sessionActionExecutorBridge.openWorktreeUnsupported', "Worktree creation is not yet supported by the Sessions executor bridge."),
 		};
 	}
@@ -359,8 +383,32 @@ export class SessionActionExecutorBridge implements ISessionActionExecutorBridge
 	}
 
 	private _toCommandLine(command: string, args: readonly unknown[] | undefined): string {
-		const parts = [command, ...(args ?? []).map(arg => this._formatCommandArg(arg))];
+		const parts = [command, ...this._toCommandArgs(args)];
 		return parts.join(' ').trim();
+	}
+
+	private _toCommandArgs(args: readonly unknown[] | undefined): readonly string[] {
+		return (args ?? []).map(arg => this._formatCommandArg(arg));
+	}
+
+	private _serializeValue(value: unknown): string | undefined {
+		if (value === undefined) {
+			return undefined;
+		}
+
+		if (typeof value === 'string') {
+			return value;
+		}
+
+		if (typeof value === 'number' || typeof value === 'boolean' || value === null) {
+			return String(value);
+		}
+
+		try {
+			return JSON.stringify(value, undefined, 2);
+		} catch {
+			return String(value);
+		}
 	}
 
 	private _formatCommandArg(arg: unknown): string {

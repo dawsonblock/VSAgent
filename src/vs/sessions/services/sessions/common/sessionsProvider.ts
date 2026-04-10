@@ -9,8 +9,50 @@ import { ThemeIcon } from '../../../../base/common/themables.js';
 import { URI } from '../../../../base/common/uri.js';
 import { RemoteAgentHostConnectionStatus } from '../../../../platform/agentHost/common/remoteAgentHostService.js';
 import { IChatRequestVariableEntry } from '../../../../workbench/contrib/chat/common/attachments/chatVariableEntries.js';
-import { SessionHostKind } from '../../actions/common/sessionActionTypes.js';
+import { SessionActionDenialReason, SessionActionKind, SessionHostKind } from '../../actions/common/sessionActionTypes.js';
 import { ISession, ISessionType, ISessionWorkspace, ISessionWorkspaceBrowseAction } from './session.js';
+
+export interface ISessionProviderActionCapabilityDenial {
+	readonly reason: SessionActionDenialReason.ProviderCapabilityMissing;
+	readonly message: string;
+}
+
+export function getSessionsProviderActionCapabilityDenial(actionKind: SessionActionKind, capabilities: ISessionsProviderCapabilities): ISessionProviderActionCapabilityDenial | undefined {
+	switch (actionKind) {
+		case SessionActionKind.SearchWorkspace:
+		case SessionActionKind.ReadFile:
+			return capabilities.canReadWorkspace ? undefined : {
+				reason: SessionActionDenialReason.ProviderCapabilityMissing,
+				message: 'The active provider cannot read from the workspace.',
+			};
+		case SessionActionKind.WritePatch:
+			return capabilities.canWriteWorkspace ? undefined : {
+				reason: SessionActionDenialReason.ProviderCapabilityMissing,
+				message: 'The active provider cannot write to the workspace.',
+			};
+		case SessionActionKind.RunCommand:
+			return capabilities.canRunCommands ? undefined : {
+				reason: SessionActionDenialReason.ProviderCapabilityMissing,
+				message: 'The active provider cannot run commands.',
+			};
+		case SessionActionKind.GitStatus:
+		case SessionActionKind.GitDiff:
+			return capabilities.canMutateGit ? undefined : {
+				reason: SessionActionDenialReason.ProviderCapabilityMissing,
+				message: 'The active provider cannot inspect or mutate git state through Sessions mediation.',
+			};
+		case SessionActionKind.OpenWorktree:
+			return capabilities.canOpenWorktrees ? undefined : {
+				reason: SessionActionDenialReason.ProviderCapabilityMissing,
+				message: 'The active provider cannot open worktrees through Sessions mediation.',
+			};
+		default:
+			return {
+				reason: SessionActionDenialReason.ProviderCapabilityMissing,
+				message: 'The active provider cannot execute this action kind through Sessions mediation.',
+			};
+	}
+}
 
 /**
  * Event fired when sessions change within a provider.

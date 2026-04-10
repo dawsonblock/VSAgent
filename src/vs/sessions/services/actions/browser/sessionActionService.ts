@@ -58,6 +58,11 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 	private async _submitAction(sessionId: string, providerId: string, action: SessionAction, execute: boolean): Promise<SessionActionResult> {
 		const normalizedAction = this._normalizeAction(action);
 		const requestedAt = Date.now();
+		let session: ISession | undefined;
+		let executionContext: SessionActionExecutionContext | undefined;
+		let normalizedScope: NormalizedSessionActionScope | undefined;
+		let approval: SessionActionReceipt['approval'] | undefined;
+		let decidedAt: number | undefined;
 		this._onDidChangeActiveAction.fire({ sessionId, actionId: normalizedAction.id!, active: true });
 
 		try {
@@ -66,7 +71,7 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 				return this._deny(sessionId, providerId, normalizedAction, SessionActionDenialReason.ProviderCapabilityMissing, 'No Sessions provider was found for this action.', undefined, undefined, undefined, undefined, undefined, requestedAt);
 			}
 
-			const session = provider.getSessions().find(candidate => candidate.sessionId === sessionId);
+			session = provider.getSessions().find(candidate => candidate.sessionId === sessionId);
 			if (!session) {
 				return this._deny(sessionId, providerId, normalizedAction, SessionActionDenialReason.PolicyDenied, 'No active session was found for this action.', undefined, undefined, undefined, undefined, undefined, requestedAt);
 			}
@@ -76,16 +81,22 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 				return this._deny(sessionId, providerId, normalizedAction, SessionActionDenialReason.ProviderCapabilityMissing, 'The Sessions provider did not report a capability set.', session, undefined, undefined, undefined, undefined, requestedAt);
 			}
 
-			const executionContext = this._createExecutionContext(session, capabilities);
+			const capabilityDenial = this._sessionsProvidersService.getActionCapabilityDenial(providerId, normalizedAction.kind, sessionId);
+			if (capabilityDenial) {
+				return this._deny(sessionId, providerId, normalizedAction, capabilityDenial.reason, capabilityDenial.message, session, undefined, undefined, undefined, undefined, requestedAt);
+			}
+
+			executionContext = this._createExecutionContext(session, capabilities);
 			const scopeResolution = this._scopeService.resolveScope(normalizedAction, executionContext, capabilities);
 			if (!scopeResolution.scope || scopeResolution.denialReason) {
 				return this._deny(sessionId, providerId, normalizedAction, scopeResolution.denialReason ?? SessionActionDenialReason.InvalidPathScope, scopeResolution.message ?? 'The action scope could not be normalized.', session, executionContext, undefined, undefined, undefined, requestedAt);
 			}
+			normalizedScope = scopeResolution.scope;
 
 			const policySnapshot = await this._policyService.getPolicySnapshot(executionContext, this._collectPolicyRoots(executionContext));
 			const policyDecision = this._policyService.evaluate({
 				action: normalizedAction,
-				normalizedScope: scopeResolution.scope,
+				normalizedScope,
 				providerCapabilities: capabilities,
 				executionContext,
 				policy: policySnapshot,
@@ -93,15 +104,16 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 			});
 
 			if (policyDecision.mode === SessionActionPolicyMode.Deny) {
-				return this._deny(sessionId, providerId, normalizedAction, policyDecision.denialReason ?? SessionActionDenialReason.PolicyDenied, policyDecision.denialMetadata?.message ?? 'The Sessions action policy denied this request.', session, executionContext, scopeResolution.scope, policyDecision.denialMetadata, undefined, requestedAt);
+				return this._deny(sessionId, providerId, normalizedAction, policyDecision.denialReason ?? SessionActionDenialReason.PolicyDenied, policyDecision.denialMetadata?.message ?? 'The Sessions action policy denied this request.', session, executionContext, normalizedScope, policyDecision.denialMetadata, undefined, requestedAt);
 			}
 
 			const approvalDecision = await this._approvalService.requestApproval(normalizedAction, policyDecision, capabilities);
+			approval = approvalDecision.approval;
 			if (!approvalDecision.approved) {
-				return this._deny(sessionId, providerId, normalizedAction, SessionActionDenialReason.ApprovalDenied, approvalDecision.approval.summary, session, executionContext, scopeResolution.scope, undefined, approvalDecision.approval, requestedAt);
+				return this._deny(sessionId, providerId, normalizedAction, SessionActionDenialReason.ApprovalDenied, approvalDecision.approval.summary, session, executionContext, normalizedScope, undefined, approvalDecision.approval, requestedAt);
 			}
 
-			const decidedAt = Date.now();
+			decidedAt = Date.now();
 
 			if (!execute) {
 				const approvedResult = this._createApprovedResult(normalizedAction, approvalDecision.approval);
@@ -110,8 +122,8 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 					sessionId,
 					providerId,
 					executionContext,
-					requestedScope: this._toScopeSummary(scopeResolution.scope, executionContext.hostTarget),
-					approvedScope: this._toScopeSummary(scopeResolution.scope, executionContext.hostTarget),
+					requestedScope: this._toScopeSummary(normalizedScope, executionContext.hostTarget),
+					approvedScope: this._toScopeSummary(normalizedScope, executionContext.hostTarget),
 					status: SessionActionReceiptStatus.Approved,
 					requestedAt,
 					decidedAt,
@@ -129,18 +141,18 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 			}
 
 			if (!this._executorBridge.supports(normalizedAction.kind)) {
-				return this._deny(sessionId, providerId, normalizedAction, SessionActionDenialReason.UnsupportedAction, `Action kind '${normalizedAction.kind}' is not yet mediated by the Sessions executor bridge.`, session, executionContext, scopeResolution.scope, undefined, approvalDecision.approval, requestedAt, decidedAt, decidedAt);
+				return this._deny(sessionId, providerId, normalizedAction, SessionActionDenialReason.UnsupportedAction, `Action kind '${normalizedAction.kind}' is not yet mediated by the Sessions executor bridge.`, session, executionContext, normalizedScope, undefined, approvalDecision.approval, requestedAt, decidedAt, decidedAt);
 			}
 
-			const executionResult = await this._executorBridge.execute(normalizedAction, scopeResolution.scope);
+			const executionResult = await this._executorBridge.execute(normalizedAction, normalizedScope);
 			const completedAt = Date.now();
 			const receipt = this._createReceipt({
 				action: normalizedAction,
 				sessionId,
 				providerId,
 				executionContext,
-				requestedScope: this._toScopeSummary(scopeResolution.scope, executionContext.hostTarget),
-				approvedScope: this._toScopeSummary(scopeResolution.scope, executionContext.hostTarget),
+				requestedScope: this._toScopeSummary(normalizedScope, executionContext.hostTarget),
+				approvedScope: this._toScopeSummary(normalizedScope, executionContext.hostTarget),
 				status: executionResult.status === SessionActionStatus.Executed ? SessionActionReceiptStatus.Executed : SessionActionReceiptStatus.Failed,
 				requestedAt,
 				decidedAt,
@@ -157,7 +169,7 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 			};
 		} catch (error) {
 			this._logService.error('[SessionActionService] submitAction failed', error);
-			return this._deny(sessionId, providerId, normalizedAction, SessionActionDenialReason.ExecutionFailed, error instanceof Error ? error.message : 'An unknown error occurred while executing the Sessions action.', undefined, undefined, undefined, undefined, undefined, requestedAt);
+			return this._fail(sessionId, providerId, normalizedAction, error instanceof Error ? error.message : 'An unknown error occurred while executing the Sessions action.', session, executionContext, normalizedScope, approval, requestedAt, decidedAt);
 		} finally {
 			this._onDidChangeActiveAction.fire({ sessionId, actionId: normalizedAction.id!, active: false });
 		}
@@ -255,6 +267,52 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 		};
 	}
 
+	private _fail(sessionId: string, providerId: string, action: SessionAction, message: string, session: ISession | undefined, executionContext?: SessionActionExecutionContext, normalizedScope?: NormalizedSessionActionScope, approval?: SessionActionReceipt['approval'], requestedAt?: number, decidedAt?: number): SessionActionResult {
+		const repository = session?.workspace.get()?.repositories[0];
+		const context = executionContext ?? {
+			sessionId,
+			providerId,
+			sessionResource: session?.resource ?? URI.parse(`session-action:/${sessionId}`),
+			workspaceRoot: repository?.uri,
+			projectRoot: repository?.workingDirectory ?? repository?.uri,
+			repositoryPath: repository?.uri,
+			worktreeRoot: repository?.workingDirectory,
+			hostTarget: {
+				kind: this._sessionsProvidersService.resolveProviderHostKind(providerId, sessionId) ?? SessionHostKind.Unknown,
+				providerId,
+				authority: this._sessionsProvidersService.getProviderMetadata(providerId, sessionId)?.remoteAddress,
+			},
+			advisorySources: action.advisorySources ?? [],
+		};
+
+		const scopeSummary = this._toScopeSummary(normalizedScope, context.hostTarget);
+		const failedResult = this._createFailedResult(action, message, action.id ?? generateUuid());
+		const receiptRequestedAt = requestedAt ?? Date.now();
+		const receiptDecidedAt = decidedAt ?? Date.now();
+		const receiptCompletedAt = Date.now();
+		const receipt = this._createReceipt({
+			action,
+			sessionId,
+			providerId,
+			executionContext: context,
+			requestedScope: scopeSummary,
+			approvedScope: scopeSummary,
+			status: SessionActionReceiptStatus.Failed,
+			requestedAt: receiptRequestedAt,
+			decidedAt: receiptDecidedAt,
+			completedAt: receiptCompletedAt,
+			approval,
+			executionResult: failedResult,
+		});
+		this._receiptService.appendReceipt(receipt);
+
+		return {
+			...failedResult,
+			receiptId: receipt.id,
+			actionId: action.id ?? receipt.actionId,
+		};
+	}
+
 	private _createReceipt(options: {
 		action: SessionAction;
 		sessionId: string;
@@ -287,17 +345,23 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 			status: options.status,
 			filesTouched: this._getFilesTouched(executionResult, options.approvedScope.files),
 			cwd: options.approvedScope.cwd,
-			repositoryPath: options.approvedScope.repositoryPath,
-			worktreePath: options.approvedScope.worktreeRoot,
-			stdoutExcerpt: this._getStdoutExcerpt(executionResult),
-			stderrExcerpt: this._getStderrExcerpt(executionResult),
+			repositoryPath: this._getRepositoryPath(options.action, options.approvedScope, executionResult),
+			worktreePath: this._getWorktreePath(options.action, options.approvedScope, executionResult),
+			command: this._getCommand(options.action),
+			args: this._getCommandArgs(options.action),
+			branch: this._getBranch(options.action, executionResult),
+			stdout: this._getStdout(executionResult),
+			stderr: this._getStderr(executionResult),
+			approvalSummary: options.approval?.summary,
+			approvalFingerprint: options.approval?.fingerprint,
+			denialReason: executionResult.denialReason ?? options.denial?.reason,
 			approval: options.approval,
 			denial: options.denial,
 			advisorySources: executionResult.advisorySources,
 			executionSummary: executionResult.summary,
 			error: executionResult.status === SessionActionStatus.Failed || executionResult.status === SessionActionStatus.Denied
 				? {
-					name: executionResult.status,
+					name: executionResult.denialReason ?? executionResult.status,
 					message: executionResult.denialMessage ?? executionResult.summary ?? 'The Sessions action did not complete successfully.',
 				}
 				: undefined,
@@ -335,6 +399,9 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 				return {
 					...base,
 					kind: SessionActionKind.RunCommand,
+					command: (action as RunCommandAction).command,
+					args: this._toCommandArgs((action as RunCommandAction).args),
+					cwd: (action as RunCommandAction).cwd,
 					commandLine: this._toCommandLine(action as RunCommandAction),
 				};
 			case SessionActionKind.GitStatus:
@@ -355,6 +422,7 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 					kind: SessionActionKind.OpenWorktree,
 					repository: (action as OpenWorktreeAction).repository,
 					worktreePath: (action as OpenWorktreeAction).worktreePath,
+					branch: (action as OpenWorktreeAction).branch,
 				};
 		}
 	}
@@ -379,31 +447,79 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 		return fallback;
 	}
 
-	private _getStdoutExcerpt(result: SessionActionResult): string | undefined {
+	private _getStdout(result: SessionActionResult): string | undefined {
 		switch (result.kind) {
 			case SessionActionKind.RunCommand:
 			case SessionActionKind.GitStatus:
 			case SessionActionKind.GitDiff:
-				return result.stdoutExcerpt;
+				return result.stdout;
+			case SessionActionKind.OpenWorktree:
+				return result.stdout;
 			default:
 				return undefined;
 		}
 	}
 
-	private _getStderrExcerpt(result: SessionActionResult): string | undefined {
+	private _getStderr(result: SessionActionResult): string | undefined {
 		switch (result.kind) {
 			case SessionActionKind.RunCommand:
 			case SessionActionKind.GitStatus:
 			case SessionActionKind.GitDiff:
-				return result.stderrExcerpt;
+				return result.stderr;
+			case SessionActionKind.OpenWorktree:
+				return result.stderr;
 			default:
 				return undefined;
 		}
+	}
+
+	private _getRepositoryPath(action: SessionAction, approvedScope: SessionActionReceiptScopeSummary, result: SessionActionResult): URI | undefined {
+		switch (result.kind) {
+			case SessionActionKind.GitStatus:
+			case SessionActionKind.GitDiff:
+			case SessionActionKind.OpenWorktree:
+				return result.repository;
+			default:
+				return approvedScope.repositoryPath ?? (action.kind === SessionActionKind.OpenWorktree ? action.repository : undefined);
+		}
+	}
+
+	private _getWorktreePath(action: SessionAction, approvedScope: SessionActionReceiptScopeSummary, result: SessionActionResult): URI | undefined {
+		if (result.kind === SessionActionKind.OpenWorktree) {
+			return result.worktreePath;
+		}
+
+		return approvedScope.worktreeRoot ?? (action.kind === SessionActionKind.OpenWorktree ? action.worktreePath : undefined);
+	}
+
+	private _getCommand(action: SessionAction): string | undefined {
+		return action.kind === SessionActionKind.RunCommand ? action.command : undefined;
+	}
+
+	private _getCommandArgs(action: SessionAction): readonly string[] | undefined {
+		if (action.kind !== SessionActionKind.RunCommand) {
+			return undefined;
+		}
+
+		const args = this._toCommandArgs(action.args);
+		return args.length > 0 ? args : undefined;
+	}
+
+	private _getBranch(action: SessionAction, result: SessionActionResult): string | undefined {
+		if (result.kind === SessionActionKind.OpenWorktree) {
+			return result.branch;
+		}
+
+		return action.kind === SessionActionKind.OpenWorktree ? action.branch : undefined;
 	}
 
 	private _toCommandLine(action: RunCommandAction): string {
-		const parts = [action.command, ...(action.args ?? []).map(arg => this._formatCommandArg(arg))];
+		const parts = [action.command, ...this._toCommandArgs(action.args)];
 		return parts.join(' ').trim();
+	}
+
+	private _toCommandArgs(args: readonly unknown[] | undefined): readonly string[] {
+		return (args ?? []).map(arg => this._formatCommandArg(arg));
 	}
 
 	private _formatCommandArg(arg: unknown): string {
@@ -459,7 +575,10 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 				return {
 					...base,
 					kind: SessionActionKind.RunCommand,
-					commandLine: (action as RunCommandAction).command,
+					command: (action as RunCommandAction).command,
+					args: this._toCommandArgs((action as RunCommandAction).args),
+					cwd: (action as RunCommandAction).cwd,
+					commandLine: this._toCommandLine(action as RunCommandAction),
 				};
 			case SessionActionKind.GitStatus:
 				return {
@@ -479,6 +598,77 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 					kind: SessionActionKind.OpenWorktree,
 					repository: (action as OpenWorktreeAction).repository,
 					worktreePath: (action as OpenWorktreeAction).worktreePath,
+					branch: (action as OpenWorktreeAction).branch,
+				};
+		}
+	}
+
+	private _createFailedResult(action: SessionAction, message: string, actionId: string): SessionActionResult {
+		const base = {
+			actionId,
+			status: SessionActionStatus.Failed,
+			advisorySources: action.advisorySources ?? [],
+			denialReason: SessionActionDenialReason.ExecutionFailed,
+			denialMessage: message,
+			summary: message,
+		};
+
+		switch (action.kind) {
+			case SessionActionKind.SearchWorkspace:
+				return {
+					...base,
+					kind: SessionActionKind.SearchWorkspace,
+				};
+			case SessionActionKind.ReadFile:
+				return {
+					...base,
+					kind: SessionActionKind.ReadFile,
+					resource: (action as ReadFileAction).resource,
+				};
+			case SessionActionKind.WritePatch:
+				return {
+					...base,
+					kind: SessionActionKind.WritePatch,
+					filesTouched: (action as WritePatchAction).files,
+					applied: false,
+				};
+			case SessionActionKind.RunCommand:
+				return {
+					...base,
+					kind: SessionActionKind.RunCommand,
+					command: (action as RunCommandAction).command,
+					args: this._toCommandArgs((action as RunCommandAction).args),
+					cwd: (action as RunCommandAction).cwd,
+					commandLine: this._toCommandLine(action as RunCommandAction),
+					stdout: '',
+					stderr: message,
+				};
+			case SessionActionKind.GitStatus:
+				return {
+					...base,
+					kind: SessionActionKind.GitStatus,
+					repository: (action as GitStatusAction).repository,
+					stdout: '',
+					stderr: message,
+				};
+			case SessionActionKind.GitDiff:
+				return {
+					...base,
+					kind: SessionActionKind.GitDiff,
+					repository: (action as GitDiffAction).repository,
+					stdout: '',
+					stderr: message,
+				};
+			case SessionActionKind.OpenWorktree:
+				return {
+					...base,
+					kind: SessionActionKind.OpenWorktree,
+					repository: (action as OpenWorktreeAction).repository,
+					worktreePath: (action as OpenWorktreeAction).worktreePath,
+					branch: (action as OpenWorktreeAction).branch,
+					opened: false,
+					stdout: '',
+					stderr: message,
 				};
 		}
 	}

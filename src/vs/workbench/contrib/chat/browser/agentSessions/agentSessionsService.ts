@@ -21,6 +21,8 @@ export interface IAgentSessionsService {
 	getSession(resource: URI): IAgentSession | undefined;
 	setSessionArchived(session: IAgentSession | URI, archived: boolean): boolean;
 	setSessionRead(session: IAgentSession | URI, read: boolean): boolean;
+	renameSession(session: IAgentSession | URI, title: string): Promise<boolean>;
+	deleteSession(session: IAgentSession | URI): Promise<boolean>;
 }
 
 export class AgentSessionsService extends Disposable implements IAgentSessionsService {
@@ -83,6 +85,34 @@ export class AgentSessionsService extends Disposable implements IAgentSessionsSe
 		}
 
 		sessionItem.setRead(read);
+		return true;
+	}
+
+	async renameSession(session: IAgentSession | URI, title: string): Promise<boolean> {
+		const sessionItem = URI.isUri(session) ? this.getSession(session) : session;
+		if (!sessionItem) {
+			return false;
+		}
+
+		if (await this.chatSessionsService.renameChatSession?.(sessionItem.resource, title)) {
+			return true;
+		}
+
+		await this.chatService.setChatSessionTitle(sessionItem.resource, title);
+		return true;
+	}
+
+	async deleteSession(session: IAgentSession | URI): Promise<boolean> {
+		const sessionItem = URI.isUri(session) ? this.getSession(session) : session;
+		if (!sessionItem) {
+			return false;
+		}
+
+		if (await this.chatSessionsService.deleteChatSession?.(sessionItem.resource)) {
+			return true;
+		}
+
+		await this.chatService.removeHistoryEntry(sessionItem.resource);
 		return true;
 	}
 }

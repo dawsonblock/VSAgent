@@ -67,6 +67,7 @@
     "watch-cli": "npm run gulp watch-cli",
     "eslint": "node build/eslint.ts",
     "stylelint": "node build/stylelint.ts",
+    "check-vsagent-architecture": "node scripts/ci/check-vsagent-architecture.mjs",
     "playwright-install": "npm exec playwright install",
     "compile-build": "npm run gulp compile-build-with-mangling",
     "compile-extensions-build": "npm run gulp compile-extensions-build",

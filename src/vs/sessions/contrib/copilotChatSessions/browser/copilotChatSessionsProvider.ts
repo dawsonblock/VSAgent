@@ -25,7 +25,6 @@ import { ChatSessionStatus, IChatSessionFileChange, IChatSessionsService, IChatS
 import { ISession, IChat, ISessionRepository, ISessionWorkspace, SessionStatus, GITHUB_REMOTE_FILE_SCHEME, IGitHubInfo, CopilotCLISessionType, CopilotCloudSessionType, ISessionType, ISessionWorkspaceBrowseAction } from '../../../services/sessions/common/session.js';
 import { ChatAgentLocation, ChatModeKind, ChatPermissionLevel } from '../../../../workbench/contrib/chat/common/constants.js';
 import { basename, isEqual } from '../../../../base/common/resources.js';
-import { SessionHostKind } from '../../../services/actions/common/sessionActionTypes.js';
 import { ISendRequestOptions, ISessionChangeEvent, ISessionsProvider, ISessionsProviderCapabilities } from '../../../services/sessions/common/sessionsProvider.js';
 import { ISessionOptionGroup } from '../../chat/browser/newSession.js';
 import { IsolationMode } from './isolationPicker.js';
@@ -45,6 +44,8 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IGitHubService } from '../../github/browser/githubService.js';
 import { computePullRequestIcon, GitHubPullRequestState } from '../../github/common/types.js';
+import { ISessionActionService } from '../../../services/actions/common/sessionActionService.js';
+import { SessionActionKind, SessionActionRequestSource, SessionActionStatus, SessionCommandLaunchKind, SessionHostKind } from '../../../services/actions/common/sessionActionTypes.js';
 
 export interface ICopilotChatSession {
 	/** Globally unique session ID (`providerId:localId`). */
@@ -1090,6 +1091,7 @@ export class CopilotChatSessionsProvider extends Disposable implements ISessions
 		@IChatWidgetService private readonly chatWidgetService: IChatWidgetService,
 		@IFileDialogService private readonly fileDialogService: IFileDialogService,
 		@ICommandService private readonly commandService: ICommandService,
+		@ISessionActionService private readonly sessionActionService: ISessionActionService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@ILanguageModelsService private readonly languageModelsService: ILanguageModelsService,
 		@ILanguageModelToolsService private readonly toolsService: ILanguageModelToolsService,
@@ -1242,6 +1244,16 @@ export class CopilotChatSessionsProvider extends Disposable implements ISessions
 	}
 
 	async deleteSession(sessionId: string): Promise<void> {
+		const agentSession = this._findAgentSession(sessionId);
+		if (agentSession) {
+			await this._runManagementCommand(sessionId, '_sessions.deleteSession', [{ providerId: this.id, sessionId }]);
+			return;
+		}
+
+		await this.deleteSessionDirect(sessionId);
+	}
+
+	async deleteSessionDirect(sessionId: string): Promise<void> {
 		// Collect all chat IDs in this session group
 		const chatIds = this._isMultiChatEnabled()
 			? this._groupModel.getChatIds(sessionId)
@@ -1286,13 +1298,22 @@ export class CopilotChatSessionsProvider extends Disposable implements ISessions
 	}
 
 	async renameChat(sessionId: string, _chatUri: URI, title: string): Promise<void> {
+		if (this._findAgentSession(sessionId)) {
+			await this._runManagementCommand(sessionId, '_sessions.renameChat', [{ providerId: this.id, sessionId, chatUri: _chatUri, title }]);
+			return;
+		}
+	}
+
+	async renameChatDirect(sessionId: string, _chatUri: URI, title: string): Promise<void> {
 		const agentSession = this._findAgentSession(sessionId);
-		if (agentSession) {
-			if (agentSession.providerType === CopilotCLISessionType.id) {
-				this.commandService.executeCommand('github.copilot.cli.sessions.setTitle', { resource: agentSession.resource }, title);
-			} else {
-				this.chatService.setChatSessionTitle(agentSession.resource, title);
-			}
+		if (!agentSession) {
+			return;
+		}
+
+		if (agentSession.providerType === CopilotCLISessionType.id) {
+			this.commandService.executeCommand('github.copilot.cli.sessions.setTitle', { resource: agentSession.resource }, title);
+		} else {
+			this.chatService.setChatSessionTitle(agentSession.resource, title);
 		}
 	}
 
@@ -1305,6 +1326,25 @@ export class CopilotChatSessionsProvider extends Disposable implements ISessions
 		if (chatIds.length <= 1) {
 			// Only one chat — delete the entire session
 			return this.deleteSession(sessionId);
+		}
+
+		const agentSession = this._findAgentSession(sessionId);
+		if (agentSession) {
+			await this._runManagementCommand(sessionId, '_sessions.deleteChat', [{ providerId: this.id, sessionId, chatUri }]);
+			return;
+		}
+
+		await this.deleteChatDirect(sessionId, chatUri);
+	}
+
+	async deleteChatDirect(sessionId: string, chatUri: URI): Promise<void> {
+		if (!this._isMultiChatEnabled()) {
+			throw new Error('Deleting individual chats is not supported when multi-chat is disabled');
+		}
+
+		const chatIds = this._groupModel.getChatIds(sessionId);
+		if (chatIds.length <= 1) {
+			return this.deleteSessionDirect(sessionId);
 		}
 
 		// Find the chat matching the URI
@@ -1334,6 +1374,20 @@ export class CopilotChatSessionsProvider extends Disposable implements ISessions
 		const agentSession = this._findAgentSession(sessionId);
 		if (agentSession) {
 			this.agentSessionsService.setSessionRead(agentSession, read);
+		}
+	}
+
+	private async _runManagementCommand(sessionId: string, command: string, args: readonly unknown[]): Promise<void> {
+		const result = await this.sessionActionService.submitAction(sessionId, this.id, {
+			kind: SessionActionKind.RunCommand,
+			requestedBy: SessionActionRequestSource.User,
+			command,
+			args,
+			launchKind: SessionCommandLaunchKind.Command,
+		});
+
+		if (result.status !== SessionActionStatus.Executed) {
+			throw new Error(result.summary ?? `Sessions management command '${command}' did not execute successfully.`);
 		}
 	}
 

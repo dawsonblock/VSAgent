@@ -60,8 +60,14 @@ suite('SessionActionLogView', () => {
 			cwd: URI.file('/workspace/repo'),
 			repositoryPath: URI.file('/workspace/repo'),
 			worktreePath: URI.file('/workspace/repo'),
-			stdoutExcerpt: 'ok',
-			stderrExcerpt: undefined,
+			command: 'npm',
+			args: ['test'],
+			branch: 'feature',
+			stdout: 'ok',
+			stderr: undefined,
+			approvalSummary: 'Approved write',
+			approvalFingerprint: 'fp-1',
+			denialReason: status === SessionActionReceiptStatus.Denied ? SessionActionDenialReason.PolicyDenied : undefined,
 			approval: {
 				required: true,
 				granted: true,
@@ -100,6 +106,8 @@ suite('SessionActionLogView', () => {
 		const text = formatSessionActionLogText('Session One', [receipt]);
 
 		assert.ok(details.some(detail => detail.label === 'Approval'));
+		assert.ok(details.some(detail => detail.label === 'Command'));
+		assert.ok(details.some(detail => detail.label === 'Denial Reason'));
 		assert.ok(details.some(detail => detail.label === 'Denial'));
 		assert.ok(text.includes('Action log for Session One'));
 		assert.ok(text.includes('Denied'));
