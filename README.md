@@ -233,9 +233,8 @@ Providers must declare:
 	•	canReadWorkspace
 	•	canWriteWorkspace
 	•	canRunCommands
-	•	canMutateGit
 	•	canOpenWorktrees
-	•	canUseExternalTools
+	•	multipleChatsPerSession
 	•	requiresApprovalForWrites
 	•	requiresApprovalForCommands
 	•	hostKind
