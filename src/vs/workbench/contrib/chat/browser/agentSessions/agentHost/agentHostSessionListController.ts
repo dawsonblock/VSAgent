@@ -10,7 +10,7 @@ import { URI } from '../../../../../../base/common/uri.js';
 import { IProductService } from '../../../../../../platform/product/common/productService.js';
 import { AgentSession, type IAgentConnection } from '../../../../../../platform/agentHost/common/agentService.js';
 import { toAgentHostUri } from '../../../../../../platform/agentHost/common/agentHostUri.js';
-import { isSessionAction } from '../../../../../../platform/agentHost/common/state/sessionActions.js';
+import { ActionType, isSessionAction } from '../../../../../../platform/agentHost/common/state/sessionActions.js';
 import type { ISessionFileDiff } from '../../../../../../platform/agentHost/common/state/sessionState.js';
 import { ChatSessionStatus, IChatSessionFileChange2, IChatSessionItem, IChatSessionItemController, IChatSessionItemsDelta } from '../../../common/chatSessionsService.js';
 import { getAgentHostIcon } from '../agentSessions.js';
@@ -54,22 +54,7 @@ export class AgentHostSessionListController extends Disposable implements IChatS
 		// React to protocol notifications for session list changes
 		this._register(this._connection.onDidNotification(n => {
 			if (n.type === 'notify/sessionAdded' && n.summary.provider === this._provider) {
-				const rawId = AgentSession.id(n.summary.resource);
-				const workingDir = typeof n.summary.workingDirectory === 'string' ? URI.parse(n.summary.workingDirectory) : undefined;
-				const item: IChatSessionItem = {
-					resource: URI.from({ scheme: this._sessionType, path: `/${rawId}` }),
-					label: n.summary.title ?? `Session ${rawId.substring(0, 8)}`,
-					description: this._description,
-					iconPath: getAgentHostIcon(this._productService),
-					status: ChatSessionStatus.Completed,
-					metadata: this._buildMetadata(workingDir),
-					timing: {
-						created: n.summary.createdAt,
-						lastRequestStarted: n.summary.modifiedAt,
-						lastRequestEnded: n.summary.modifiedAt,
-					},
-					changes: mapDiffsToChanges(n.summary.diffs, this._connectionAuthority),
-				};
+				const item = this._toItemFromNotification(n.summary);
 				this._items.push(item);
 				this._onDidChangeChatSessionItems.fire({ addedOrUpdated: [item] });
 			} else if (n.type === 'notify/sessionRemoved' && AgentSession.provider(n.session) === this._provider) {
@@ -84,9 +69,26 @@ export class AgentHostSessionListController extends Disposable implements IChatS
 
 		// Refresh on turnComplete and diffsChanged actions for metadata updates
 		this._register(this._connection.onDidAction(e => {
-			if ((e.action.type === 'session/turnComplete' || e.action.type === 'session/diffsChanged') && isSessionAction(e.action) && AgentSession.provider(e.action.session) === this._provider) {
-				const cts = new CancellationTokenSource();
-				this.refresh(cts.token).finally(() => cts.dispose());
+			if (!isSessionAction(e.action) || AgentSession.provider(e.action.session) !== this._provider) {
+				return;
+			}
+
+			switch (e.action.type) {
+				case ActionType.SessionTurnComplete:
+				case ActionType.SessionDiffsChanged: {
+					const cts = new CancellationTokenSource();
+					this.refresh(cts.token).finally(() => cts.dispose());
+					break;
+				}
+				case ActionType.SessionTitleChanged:
+					this._updateItem(AgentSession.id(e.action.session), item => ({ ...item, label: e.action.title }));
+					break;
+				case ActionType.SessionIsReadChanged:
+					this._updateItem(AgentSession.id(e.action.session), item => ({ ...item, read: e.action.isRead }));
+					break;
+				case ActionType.SessionIsDoneChanged:
+					this._updateItem(AgentSession.id(e.action.session), item => ({ ...item, archived: e.action.isDone }));
+					break;
 			}
 		}));
 	}
@@ -95,29 +97,103 @@ export class AgentHostSessionListController extends Disposable implements IChatS
 		return this._items;
 	}
 
+	setChatSessionArchived(sessionResource: URI, archived: boolean): boolean {
+		const rawId = this._rawIdFromResource(sessionResource);
+		if (!rawId) {
+			return false;
+		}
+
+		this._connection.dispatch({
+			type: ActionType.SessionIsDoneChanged,
+			session: AgentSession.uri(this._provider, rawId).toString(),
+			isDone: archived,
+		});
+		return true;
+	}
+
+	setChatSessionRead(sessionResource: URI, read: boolean): boolean {
+		const rawId = this._rawIdFromResource(sessionResource);
+		if (!rawId) {
+			return false;
+		}
+
+		this._connection.dispatch({
+			type: ActionType.SessionIsReadChanged,
+			session: AgentSession.uri(this._provider, rawId).toString(),
+			isRead: read,
+		});
+		return true;
+	}
+
 	async refresh(_token: CancellationToken): Promise<void> {
 		try {
 			const sessions = await this._connection.listSessions();
 			const filtered = sessions.filter(s => AgentSession.provider(s.session) === this._provider);
-			const rawId = (s: typeof filtered[0]) => AgentSession.id(s.session);
-			this._items = filtered.map(s => ({
-				resource: URI.from({ scheme: this._sessionType, path: `/${rawId(s)}` }),
-				label: s.summary ?? `Session ${rawId(s).substring(0, 8)}`,
-				description: this._description,
-				iconPath: getAgentHostIcon(this._productService),
-				status: ChatSessionStatus.Completed,
-				metadata: this._buildMetadata(s.workingDirectory),
-				timing: {
-					created: s.startTime,
-					lastRequestStarted: s.modifiedTime,
-					lastRequestEnded: s.modifiedTime,
-				},
-				changes: mapDiffsToChanges(s.diffs, this._connectionAuthority),
-			}));
+			this._items = filtered.map(s => this._toItemFromMetadata(s));
 		} catch {
 			this._items = [];
 		}
 		this._onDidChangeChatSessionItems.fire({ addedOrUpdated: this._items });
+	}
+
+	private _toItemFromNotification(summary: { readonly resource: string; readonly title?: string; readonly createdAt: number; readonly modifiedAt: number; readonly workingDirectory?: string; readonly diffs?: readonly ISessionFileDiff[] | readonly { readonly uri: string; readonly added?: number; readonly removed?: number }[]; readonly isDone?: boolean; readonly isRead?: boolean }): IChatSessionItem {
+		const rawId = AgentSession.id(summary.resource);
+		const workingDir = typeof summary.workingDirectory === 'string' ? URI.parse(summary.workingDirectory) : undefined;
+		return {
+			resource: URI.from({ scheme: this._sessionType, path: `/${rawId}` }),
+			label: summary.title ?? `Session ${rawId.substring(0, 8)}`,
+			description: this._description,
+			iconPath: getAgentHostIcon(this._productService),
+			status: ChatSessionStatus.Completed,
+			metadata: this._buildMetadata(workingDir),
+			timing: {
+				created: summary.createdAt,
+				lastRequestStarted: summary.modifiedAt,
+				lastRequestEnded: summary.modifiedAt,
+			},
+			changes: mapDiffsToChanges(summary.diffs, this._connectionAuthority),
+			archived: summary.isDone,
+			read: summary.isRead,
+		};
+	}
+
+	private _toItemFromMetadata(metadata: { readonly session: URI; readonly startTime: number; readonly modifiedTime: number; readonly summary?: string; readonly workingDirectory?: URI; readonly diffs?: readonly { readonly uri: string; readonly added?: number; readonly removed?: number }[]; readonly isRead?: boolean; readonly isDone?: boolean }): IChatSessionItem {
+		const rawId = AgentSession.id(metadata.session);
+		return {
+			resource: URI.from({ scheme: this._sessionType, path: `/${rawId}` }),
+			label: metadata.summary ?? `Session ${rawId.substring(0, 8)}`,
+			description: this._description,
+			iconPath: getAgentHostIcon(this._productService),
+			status: ChatSessionStatus.Completed,
+			metadata: this._buildMetadata(metadata.workingDirectory),
+			timing: {
+				created: metadata.startTime,
+				lastRequestStarted: metadata.modifiedTime,
+				lastRequestEnded: metadata.modifiedTime,
+			},
+			changes: mapDiffsToChanges(metadata.diffs, this._connectionAuthority),
+			archived: metadata.isDone,
+			read: metadata.isRead,
+		};
+	}
+
+	private _updateItem(rawId: string, update: (item: IChatSessionItem) => IChatSessionItem): void {
+		const index = this._items.findIndex(item => item.resource.path === `/${rawId}`);
+		if (index < 0) {
+			return;
+		}
+
+		const updatedItem = update(this._items[index]);
+		this._items[index] = updatedItem;
+		this._onDidChangeChatSessionItems.fire({ addedOrUpdated: [updatedItem] });
+	}
+
+	private _rawIdFromResource(sessionResource: URI): string | undefined {
+		if (sessionResource.scheme !== this._sessionType) {
+			return undefined;
+		}
+
+		return sessionResource.path.startsWith('/') ? sessionResource.path.substring(1) : sessionResource.path;
 	}
 
 	private _buildMetadata(workingDirectory?: URI): { readonly [key: string]: unknown } | undefined {

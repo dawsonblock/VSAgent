@@ -8,6 +8,7 @@ import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { createDecorator, IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
 import { IChatService } from '../../common/chatService/chatService.js';
+import { IChatSessionsService } from '../../common/chatSessionsService.js';
 import { AgentSessionsModel, IAgentSession, IAgentSessionsModel } from './agentSessionsModel.js';
 
 export interface IAgentSessionsService {
@@ -48,6 +49,7 @@ export class AgentSessionsService extends Disposable implements IAgentSessionsSe
 	constructor(
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@IChatService private readonly chatService: IChatService,
+		@IChatSessionsService private readonly chatSessionsService: IChatSessionsService,
 	) {
 		super();
 	}
@@ -62,6 +64,10 @@ export class AgentSessionsService extends Disposable implements IAgentSessionsSe
 			return false;
 		}
 
+		if (this.chatSessionsService.setChatSessionArchived?.(sessionItem.resource, archived)) {
+			return true;
+		}
+
 		sessionItem.setArchived(archived);
 		return true;
 	}
@@ -70,6 +76,10 @@ export class AgentSessionsService extends Disposable implements IAgentSessionsSe
 		const sessionItem = URI.isUri(session) ? this.getSession(session) : session;
 		if (!sessionItem) {
 			return false;
+		}
+
+		if (this.chatSessionsService.setChatSessionRead?.(sessionItem.resource, read)) {
+			return true;
 		}
 
 		sessionItem.setRead(read);

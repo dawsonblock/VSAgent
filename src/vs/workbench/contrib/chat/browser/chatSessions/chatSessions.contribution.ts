@@ -914,6 +914,24 @@ export class ChatSessionsService extends Disposable implements IChatSessionsServ
 		}));
 	}
 
+	setChatSessionArchived(sessionResource: URI, archived: boolean): boolean {
+		return this.withSessionItemController(sessionResource, controller => controller.setChatSessionArchived?.(sessionResource, archived) ?? false);
+	}
+
+	setChatSessionRead(sessionResource: URI, read: boolean): boolean {
+		return this.withSessionItemController(sessionResource, controller => controller.setChatSessionRead?.(sessionResource, read) ?? false);
+	}
+
+	private withSessionItemController(sessionResource: URI, fn: (controller: IChatSessionItemController) => boolean): boolean {
+		const resolvedType = this._resolveToPrimaryType(sessionResource.scheme) ?? sessionResource.scheme;
+		const controller = this._itemControllers.get(resolvedType)?.controller ?? this._itemControllers.get(sessionResource.scheme)?.controller;
+		if (!controller) {
+			return false;
+		}
+
+		return fn(controller);
+	}
+
 	getRegisteredChatSessionItemProviders(): readonly string[] {
 		return [...new Set(Array.from(this._itemControllers.keys()).map(key => this._resolveToPrimaryType(key) ?? key))];
 	}

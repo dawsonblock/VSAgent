@@ -119,6 +119,7 @@ export interface IChatSessionItem {
 		readonly insertions: number;
 		readonly deletions: number;
 	} | readonly IChatSessionFileChange[] | readonly IChatSessionFileChange2[];
+	readonly read?: boolean;
 	readonly archived?: boolean;
 	readonly metadata?: { readonly [key: string]: unknown };
 }
@@ -235,6 +236,10 @@ export interface IChatSessionItemController {
 	newChatSessionItem?(request: IChatNewSessionRequest, token: CancellationToken): Promise<IChatSessionItem | undefined>;
 
 	getNewChatSessionInputState?(token: CancellationToken): Promise<readonly IChatSessionProviderOptionGroup[] | undefined>;
+
+	setChatSessionArchived?(sessionResource: URI, archived: boolean): boolean;
+
+	setChatSessionRead?(sessionResource: URI, read: boolean): boolean;
 }
 
 export interface IChatSessionOptionsChangeEvent {
@@ -366,6 +371,10 @@ export interface IChatSessionsService {
 	 * Forces the controllers to refresh their session items, optionally filtered by provider type.
 	 */
 	refreshChatSessionItems(providerTypeFilter: readonly string[] | undefined, token: CancellationToken): Promise<void>;
+
+	setChatSessionArchived?(sessionResource: URI, archived: boolean): boolean;
+
+	setChatSessionRead?(sessionResource: URI, read: boolean): boolean;
 
 	/** @deprecated Use `getChatSessionItems` */
 	getInProgress(): { chatSessionType: string; count: number }[];
