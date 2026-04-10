@@ -47,8 +47,8 @@ Every privileged action must follow this path:
 Session → SessionActionService.submitAction()
 
 1. Normalize Action
-2. Normalize Scope (paths, cwd, host)
-3. Fetch Provider Capabilities
+2. Fetch Provider Capabilities
+3. Normalize Scope (paths, cwd, host)
 4. Apply Policy (allow / deny / require approval)
 5. Request Approval (if needed)
 6. Execute via Executor Bridge
