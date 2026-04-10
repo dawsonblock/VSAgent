@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
@@ -12,9 +13,11 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { ITaskService } from '../../../../workbench/contrib/tasks/common/taskService.js';
 import { TaskRunSource } from '../../../../workbench/contrib/tasks/common/tasks.js';
+import { IGitService } from '../../../../workbench/contrib/git/common/gitService.js';
+import { ISearchService, ITextQuery, QueryType, resultIsMatch } from '../../../../workbench/services/search/common/search.js';
 import { localize } from '../../../../nls.js';
 import { NormalizedSessionActionScope } from '../common/sessionActionScope.js';
-import { ReadFileAction, RunCommandAction, SessionAction, SessionActionKind, SessionActionResult, SessionActionStatus, SessionCommandLaunchKind, WritePatchAction } from '../common/sessionActionTypes.js';
+import { GitDiffAction, GitStatusAction, OpenWorktreeAction, ReadFileAction, RunCommandAction, SearchWorkspaceAction, SessionAction, SessionActionKind, SessionActionResult, SessionActionStatus, SessionCommandLaunchKind, WritePatchAction } from '../common/sessionActionTypes.js';
 
 export interface ISessionActionExecutorBridge {
 	readonly _serviceBrand: undefined;
@@ -33,13 +36,19 @@ export class SessionActionExecutorBridge implements ISessionActionExecutorBridge
 		@ITaskService private readonly _taskService: ITaskService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
 		@IFileService private readonly _fileService: IFileService,
+		@IGitService private readonly _gitService: IGitService,
+		@ISearchService private readonly _searchService: ISearchService,
 	) { }
 
 	supports(kind: SessionActionKind): boolean {
 		switch (kind) {
+			case SessionActionKind.SearchWorkspace:
 			case SessionActionKind.ReadFile:
 			case SessionActionKind.WritePatch:
 			case SessionActionKind.RunCommand:
+			case SessionActionKind.GitStatus:
+			case SessionActionKind.GitDiff:
+			case SessionActionKind.OpenWorktree:
 				return true;
 			default:
 				return false;
@@ -48,15 +57,87 @@ export class SessionActionExecutorBridge implements ISessionActionExecutorBridge
 
 	async execute(action: SessionAction, scope: NormalizedSessionActionScope): Promise<SessionActionResult> {
 		switch (action.kind) {
+			case SessionActionKind.SearchWorkspace:
+				return this._searchWorkspace(action as SearchWorkspaceAction, scope);
 			case SessionActionKind.ReadFile:
 				return this._readFile(action as ReadFileAction);
 			case SessionActionKind.WritePatch:
 				return this._writePatch(action as WritePatchAction);
 			case SessionActionKind.RunCommand:
 				return this._runCommand(action as RunCommandAction, scope);
+			case SessionActionKind.GitStatus:
+				return this._gitStatus(action as GitStatusAction);
+			case SessionActionKind.GitDiff:
+				return this._gitDiff(action as GitDiffAction);
+			case SessionActionKind.OpenWorktree:
+				return this._openWorktree(action as OpenWorktreeAction);
 			default:
-				throw new Error(`Unsupported action kind '${action.kind}'`);
+				throw new Error('Unsupported Sessions action kind.');
 		}
+	}
+
+	private async _searchWorkspace(action: SearchWorkspaceAction, scope: NormalizedSessionActionScope): Promise<SessionActionResult> {
+		const roots = this._getSearchRoots(scope);
+		if (roots.length === 0) {
+			return {
+				actionId: action.id ?? 'unknown',
+				kind: SessionActionKind.SearchWorkspace,
+				status: SessionActionStatus.Failed,
+				advisorySources: action.advisorySources ?? [],
+				summary: localize('sessionActionExecutorBridge.searchWorkspaceMissingRoot', "Could not search because no workspace root was resolved for the Sessions action."),
+			};
+		}
+
+		const query: ITextQuery = {
+			type: QueryType.Text,
+			folderQueries: roots.map(folder => ({ folder })),
+			contentPattern: {
+				pattern: action.query,
+				isRegExp: action.isRegexp,
+			},
+			includePattern: action.includePattern ? { [action.includePattern]: true } : undefined,
+			maxResults: action.maxResults,
+			previewOptions: {
+				matchLines: 1,
+				charsPerLine: 160,
+			},
+		};
+
+		const complete = await this._searchService.textSearch(query, CancellationToken.None);
+		const matches: Array<{ resource: URI; lineNumber?: number; preview?: string }> = [];
+
+		for (const fileMatch of complete.results) {
+			if (!fileMatch.results || fileMatch.results.length === 0) {
+				matches.push({ resource: fileMatch.resource });
+			} else {
+				for (const result of fileMatch.results) {
+					if (!resultIsMatch(result)) {
+						continue;
+					}
+
+					matches.push({
+						resource: fileMatch.resource,
+						lineNumber: result.rangeLocations[0]?.source.startLineNumber,
+						preview: result.previewText,
+					});
+				}
+			}
+
+			if (typeof action.maxResults === 'number' && matches.length >= action.maxResults) {
+				break;
+			}
+		}
+
+		const limitedMatches = typeof action.maxResults === 'number' ? matches.slice(0, action.maxResults) : matches;
+
+		return {
+			actionId: action.id ?? 'unknown',
+			kind: SessionActionKind.SearchWorkspace,
+			status: SessionActionStatus.Executed,
+			advisorySources: action.advisorySources ?? [],
+			matches: limitedMatches,
+			summary: localize('sessionActionExecutorBridge.searchWorkspaceSummary', "Found {0} workspace search match(es).", limitedMatches.length),
+		};
 	}
 
 	private async _readFile(action: ReadFileAction): Promise<SessionActionResult> {
@@ -173,6 +254,108 @@ export class SessionActionExecutorBridge implements ISessionActionExecutorBridge
 			value: value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'object' ? value : undefined,
 			summary: localize('sessionActionExecutorBridge.commandSummary', "Executed command '{0}'.", action.command),
 		};
+	}
+
+	private async _gitStatus(action: GitStatusAction): Promise<SessionActionResult> {
+		const repository = await this._gitService.openRepository(action.repository);
+		if (!repository) {
+			return {
+				actionId: action.id ?? 'unknown',
+				kind: SessionActionKind.GitStatus,
+				status: SessionActionStatus.Failed,
+				advisorySources: action.advisorySources ?? [],
+				repository: action.repository,
+				stderrExcerpt: localize('sessionActionExecutorBridge.gitStatusRepositoryMissingError', "No git repository was found at '{0}'.", action.repository.toString()),
+				summary: localize('sessionActionExecutorBridge.gitStatusRepositoryMissing', "Could not inspect git status because no repository was found for the Sessions action."),
+			};
+		}
+
+		const state = repository.state.get();
+		const value = {
+			head: state.HEAD?.name,
+			mergeChanges: state.mergeChanges.length,
+			indexChanges: state.indexChanges.length,
+			workingTreeChanges: state.workingTreeChanges.length,
+			untrackedChanges: state.untrackedChanges.length,
+		};
+
+		return {
+			actionId: action.id ?? 'unknown',
+			kind: SessionActionKind.GitStatus,
+			status: SessionActionStatus.Executed,
+			advisorySources: action.advisorySources ?? [],
+			repository: action.repository,
+			stdoutExcerpt: JSON.stringify(value),
+			value,
+			summary: localize('sessionActionExecutorBridge.gitStatusSummary', "Inspected git status for '{0}'.", action.repository.toString()),
+		};
+	}
+
+	private async _gitDiff(action: GitDiffAction): Promise<SessionActionResult> {
+		const repository = await this._gitService.openRepository(action.repository);
+		if (!repository) {
+			return {
+				actionId: action.id ?? 'unknown',
+				kind: SessionActionKind.GitDiff,
+				status: SessionActionStatus.Failed,
+				advisorySources: action.advisorySources ?? [],
+				repository: action.repository,
+				stderrExcerpt: localize('sessionActionExecutorBridge.gitDiffRepositoryMissingError', "No git repository was found at '{0}'.", action.repository.toString()),
+				summary: localize('sessionActionExecutorBridge.gitDiffRepositoryMissing', "Could not inspect git diff because no repository was found for the Sessions action."),
+			};
+		}
+
+		const ref = action.ref ?? repository.state.get().HEAD?.name ?? 'HEAD';
+		const changes = await repository.diffBetweenWithStats2(ref);
+		const value = changes.map(change => ({
+			uri: change.uri.toString(),
+			insertions: change.insertions,
+			deletions: change.deletions,
+		}));
+
+		return {
+			actionId: action.id ?? 'unknown',
+			kind: SessionActionKind.GitDiff,
+			status: SessionActionStatus.Executed,
+			advisorySources: action.advisorySources ?? [],
+			repository: action.repository,
+			stdoutExcerpt: value.map(change => `${change.uri} (+${change.insertions}/-${change.deletions})`).join('\n'),
+			value,
+			summary: localize('sessionActionExecutorBridge.gitDiffSummary', "Inspected git diff for '{0}' against '{1}'.", action.repository.toString(), ref),
+		};
+	}
+
+	private async _openWorktree(action: OpenWorktreeAction): Promise<SessionActionResult> {
+		return {
+			actionId: action.id ?? 'unknown',
+			kind: SessionActionKind.OpenWorktree,
+			status: SessionActionStatus.Failed,
+			advisorySources: action.advisorySources ?? [],
+			repository: action.repository,
+			worktreePath: action.worktreePath,
+			opened: false,
+			summary: localize('sessionActionExecutorBridge.openWorktreeUnsupported', "Worktree creation is not yet supported by the Sessions executor bridge."),
+		};
+	}
+
+	private _getSearchRoots(scope: NormalizedSessionActionScope): URI[] {
+		const roots = [
+			scope.cwd?.path,
+			scope.worktreeRoot?.path,
+			scope.repositoryPath?.path,
+			scope.workspaceRoot?.path,
+		].filter((value): value is URI => !!value);
+
+		const seen = new Set<string>();
+		return roots.filter(root => {
+			const key = root.toString();
+			if (seen.has(key)) {
+				return false;
+			}
+
+			seen.add(key);
+			return true;
+		});
 	}
 
 	private _toCommandLine(command: string, args: readonly unknown[] | undefined): string {

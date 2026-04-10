@@ -7,7 +7,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { CommandRiskClass, PolicyDenialMetadata, SessionActionPolicyDecision, SessionActionPolicyInput, SessionActionPolicyMode, SessionPolicySnapshot, ScopeConstraint } from '../common/sessionActionPolicy.js';
-import { ApprovalRequirement, RunCommandAction, SessionAction, SessionActionDenialReason, SessionActionKind, SessionActionRequestSource } from '../common/sessionActionTypes.js';
+import { ApprovalRequirement, RunCommandAction, SessionAction, SessionActionDenialReason, SessionActionKind, SessionActionRequestSource, SessionCommandLaunchKind } from '../common/sessionActionTypes.js';
 
 const defaultSecretLikeSegments = [
 	'.aws',
@@ -25,6 +25,7 @@ const defaultSecretLikeSegments = [
 
 const defaultCommandAllowPatterns = [
 	/^_git\./,
+	/^_sessions\./,
 	/^github\.copilot\.cli\.sessions\./,
 ];
 
@@ -123,16 +124,28 @@ export class SessionActionPolicyService implements ISessionActionPolicyService {
 
 		const action = input.action as RunCommandAction;
 		const riskClass = this._classifyCommandRisk(action);
-		if (input.policy.commandDenyPatterns.some(pattern => pattern.test(action.command))) {
+		const isTask = action.launchKind === SessionCommandLaunchKind.Task;
+		const isInternalCommand = this._isInternalCommand(action.command, input.policy.commandAllowPatterns);
+		const commandLine = this._getCommandLine(action);
+
+		if (input.policy.commandDenyPatterns.some(pattern => pattern.test(commandLine))) {
 			return this._deny(approvedScope, scopeConstraints, SessionActionDenialReason.PolicyDenied, `The command '${action.command}' is blocked by Sessions policy.`, riskClass, action.command);
 		}
 
-		const requiresAllowList = action.requestedBy !== SessionActionRequestSource.User && action.launchKind !== undefined;
-		if (requiresAllowList && !input.policy.commandAllowPatterns.some(pattern => pattern.test(action.command))) {
+		if (riskClass === CommandRiskClass.GitMutation && !input.providerCapabilities.canMutateGit) {
+			return this._deny(approvedScope, scopeConstraints, SessionActionDenialReason.ProviderCapabilityMissing, `The active provider cannot mutate git state through Sessions command mediation.`, riskClass, action.command);
+		}
+
+		if (!isTask && !isInternalCommand && !input.providerCapabilities.canUseExternalTools) {
+			return this._deny(approvedScope, scopeConstraints, SessionActionDenialReason.ProviderCapabilityMissing, `The active provider cannot invoke external tools through Sessions command mediation.`, riskClass, action.command);
+		}
+
+		const requiresAllowList = action.requestedBy !== SessionActionRequestSource.User && action.launchKind !== undefined && !isTask;
+		if (requiresAllowList && !isInternalCommand) {
 			return this._deny(approvedScope, scopeConstraints, SessionActionDenialReason.PolicyDenied, `The command '${action.command}' is not in the Sessions command allowlist.`, riskClass, action.command);
 		}
 
-		const approvalRequired = action.requestedBy !== SessionActionRequestSource.User && (input.providerCapabilities.requiresApprovalForCommands || riskClass !== CommandRiskClass.None || input.policy.approvalMode === 'always');
+		const approvalRequired = this._requiresCommandApproval(action, riskClass, isTask, isInternalCommand, input);
 		return {
 			mode: approvalRequired ? SessionActionPolicyMode.RequireApproval : SessionActionPolicyMode.Allow,
 			approvalRequirement: approvalRequired ? ApprovalRequirement.Required : ApprovalRequirement.None,
@@ -157,11 +170,11 @@ export class SessionActionPolicyService implements ISessionActionPolicyService {
 	}
 
 	private _worktreeDecision(input: SessionActionPolicyInput, approvedScope: SessionActionPolicyDecision['approvedScope'], scopeConstraints: readonly ScopeConstraint[]): SessionActionPolicyDecision {
-		if (!input.providerCapabilities.canOpenWorktrees || !input.policy.allowWorktreeMutation) {
+		if (!input.providerCapabilities.canMutateGit || !input.providerCapabilities.canOpenWorktrees || !input.policy.allowWorktreeMutation) {
 			return this._deny(approvedScope, scopeConstraints, SessionActionDenialReason.ProviderCapabilityMissing, 'The active provider cannot mutate worktrees.', CommandRiskClass.GitMutation);
 		}
 
-		const approvalRequired = input.action.requestedBy !== SessionActionRequestSource.User;
+		const approvalRequired = input.providerCapabilities.requiresApprovalForWorktreeActions || input.action.requestedBy !== SessionActionRequestSource.User;
 		return {
 			mode: approvalRequired ? SessionActionPolicyMode.RequireApproval : SessionActionPolicyMode.Allow,
 			approvalRequirement: approvalRequired ? ApprovalRequirement.Required : ApprovalRequirement.None,
@@ -176,11 +189,35 @@ export class SessionActionPolicyService implements ISessionActionPolicyService {
 			return CommandRiskClass.GitMutation;
 		}
 
-		if (action.command.startsWith('github.copilot.cli.sessions.')) {
+		if (action.command.startsWith('_sessions.') || action.command.startsWith('github.copilot.cli.sessions.')) {
 			return CommandRiskClass.WorkspaceWrite;
 		}
 
 		return CommandRiskClass.ProcessExecution;
+	}
+
+	private _requiresCommandApproval(action: RunCommandAction, riskClass: CommandRiskClass, isTask: boolean, isInternalCommand: boolean, input: SessionActionPolicyInput): boolean {
+		if (riskClass === CommandRiskClass.GitMutation) {
+			return input.providerCapabilities.requiresApprovalForGit || input.policy.approvalMode === 'always';
+		}
+
+		if (action.requestedBy !== SessionActionRequestSource.User) {
+			return input.providerCapabilities.requiresApprovalForCommands || riskClass !== CommandRiskClass.None || input.policy.approvalMode === 'always';
+		}
+
+		if (!isTask && !isInternalCommand) {
+			return input.providerCapabilities.requiresApprovalForCommands || input.policy.approvalMode === 'always';
+		}
+
+		return false;
+	}
+
+	private _isInternalCommand(command: string, allowPatterns: readonly RegExp[]): boolean {
+		return allowPatterns.some(pattern => pattern.test(command));
+	}
+
+	private _getCommandLine(action: RunCommandAction): string {
+		return [action.command, ...(action.args ?? []).map(arg => typeof arg === 'string' ? arg : JSON.stringify(arg))].join(' ').trim();
 	}
 
 	private _buildScopeConstraints(input: SessionActionPolicyInput): ScopeConstraint[] {

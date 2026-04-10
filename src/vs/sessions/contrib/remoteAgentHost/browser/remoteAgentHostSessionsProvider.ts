@@ -184,9 +184,15 @@ export class RemoteAgentHostSessionsProvider extends Disposable implements ISess
 		canReadWorkspace: true,
 		canWriteWorkspace: true,
 		canRunCommands: true,
+		canMutateGit: true,
 		canOpenWorktrees: false,
+		canUseExternalTools: true,
 		requiresApprovalForWrites: true,
 		requiresApprovalForCommands: true,
+		requiresApprovalForGit: true,
+		requiresApprovalForWorktreeActions: true,
+		supportsStructuredApprovals: true,
+		supportsReceiptMetadata: true,
 	};
 	readonly remoteAddress: string;
 	private _outputChannelId: string | undefined;

@@ -171,6 +171,7 @@ function createMockWorkspaceService(): IAICustomizationWorkspaceService {
 	const activeProjectRoot = observableValue<URI | undefined>('mockActiveProjectRoot', undefined);
 	return new class extends mock<IAICustomizationWorkspaceService>() {
 		override readonly activeProjectRoot = activeProjectRoot;
+		override readonly supportsProjectRootOverride = false;
 		override getActiveProjectRoot() { return undefined; }
 		override getStorageSourceFilter() { return defaultFilter; }
 	}();

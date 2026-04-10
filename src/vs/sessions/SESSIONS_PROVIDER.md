@@ -112,9 +112,15 @@ Providers also declare a conservative `capabilities` object. These values are tr
 | `canReadWorkspace` | `boolean` | Whether mediated workspace reads are allowed |
 | `canWriteWorkspace` | `boolean` | Whether mediated workspace writes are allowed |
 | `canRunCommands` | `boolean` | Whether mediated commands or tasks are allowed |
+| `canMutateGit` | `boolean` | Whether mediated git mutation is allowed |
 | `canOpenWorktrees` | `boolean` | Whether mediated worktree mutation is allowed |
+| `canUseExternalTools` | `boolean` | Whether mediated external-tool execution is allowed |
 | `requiresApprovalForWrites` | `boolean` | Whether non-user writes require approval |
 | `requiresApprovalForCommands` | `boolean` | Whether non-user commands require approval |
+| `requiresApprovalForGit` | `boolean` | Whether mediated git mutations require approval |
+| `requiresApprovalForWorktreeActions` | `boolean` | Whether mediated worktree actions require approval |
+| `supportsStructuredApprovals` | `boolean` | Whether the provider participates in structured approval payloads |
+| `supportsReceiptMetadata` | `boolean` | Whether the provider participates in structured receipt metadata |
 
 #### Workspace Discovery
 
@@ -431,7 +437,9 @@ sessionId = "default-copilot:background:///untitled-abc123"
 SessionsProvidersService._resolveProvider(sessionId)
   → Splits at first ':'
   → Looks up provider 'default-copilot' in the registry
-  → Delegates to provider.archiveSession(sessionId)
+  → SessionsManagementService submits a mediated `_sessions.archiveSession` action
+  → SessionActionService evaluates policy/approval and executes the internal command
+  → Internal command delegates to provider.archiveSession(sessionId)
 ```
 
 ---

@@ -270,7 +270,10 @@ suite('CopilotChatSessionsProvider', () => {
 
 		assert.strictEqual(provider.getCapabilities().hostKind, SessionHostKind.Copilot);
 		assert.strictEqual(provider.getCapabilities().canRunCommands, true);
+		assert.strictEqual(provider.getCapabilities().canMutateGit, true);
+		assert.strictEqual(provider.getCapabilities().canUseExternalTools, true);
 		assert.strictEqual(provider.getCapabilities().requiresApprovalForCommands, true);
+		assert.strictEqual(provider.getCapabilities().requiresApprovalForGit, true);
 	});
 
 	test('getCapabilities reports local host kind for cli sessions', () => {

@@ -465,6 +465,7 @@ async function renderEditor(ctx: ComponentFixtureContext, options: IRenderEditor
 				};
 				override readonly activeProjectRoot = observableValue('root', URI.file('/workspace'));
 				override readonly hasOverrideProjectRoot = observableValue('hasOverride', false);
+				override readonly supportsProjectRootOverride = false;
 				override getActiveProjectRoot() { return URI.file('/workspace'); }
 				override getStorageSourceFilter(type: PromptsType) { return harnessService.getStorageSourceFilter(type); }
 				override clearOverrideProjectRoot() { }
@@ -643,6 +644,7 @@ async function renderMcpBrowseMode(ctx: ComponentFixtureContext): Promise<void> 
 				};
 				override readonly activeProjectRoot = observableValue('root', URI.file('/workspace'));
 				override readonly hasOverrideProjectRoot = observableValue('hasOverride', false);
+				override readonly supportsProjectRootOverride = false;
 				override getActiveProjectRoot() { return URI.file('/workspace'); }
 				override getStorageSourceFilter() {
 					return { sources: [PromptsStorage.local, PromptsStorage.user, PromptsStorage.extension, PromptsStorage.plugin] };

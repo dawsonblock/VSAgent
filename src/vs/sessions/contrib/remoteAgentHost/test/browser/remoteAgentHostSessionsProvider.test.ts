@@ -197,9 +197,15 @@ suite('RemoteAgentHostSessionsProvider', () => {
 			canReadWorkspace: true,
 			canWriteWorkspace: true,
 			canRunCommands: true,
+			canMutateGit: true,
 			canOpenWorktrees: false,
+			canUseExternalTools: true,
 			requiresApprovalForWrites: true,
 			requiresApprovalForCommands: true,
+			requiresApprovalForGit: true,
+			requiresApprovalForWorktreeActions: true,
+			supportsStructuredApprovals: true,
+			supportsReceiptMetadata: true,
 		});
 	});
 
