@@ -46,12 +46,24 @@ export interface ISessionsProviderCapabilities {
 	readonly canWriteWorkspace: boolean;
 	/** Whether the provider may run commands through Sessions mediation. */
 	readonly canRunCommands: boolean;
+	/** Whether the provider may mutate git state through Sessions mediation. */
+	readonly canMutateGit: boolean;
 	/** Whether the provider may open or mutate worktrees through Sessions mediation. */
 	readonly canOpenWorktrees: boolean;
+	/** Whether the provider may invoke external tools through Sessions mediation. */
+	readonly canUseExternalTools: boolean;
 	/** Whether non-user write actions require an approval. */
 	readonly requiresApprovalForWrites: boolean;
 	/** Whether non-user command actions require an approval. */
 	readonly requiresApprovalForCommands: boolean;
+	/** Whether mediated git mutations require an approval. */
+	readonly requiresApprovalForGit: boolean;
+	/** Whether mediated worktree actions require an approval. */
+	readonly requiresApprovalForWorktreeActions: boolean;
+	/** Whether this provider participates in structured approval payloads. */
+	readonly supportsStructuredApprovals: boolean;
+	/** Whether this provider participates in structured receipt metadata. */
+	readonly supportsReceiptMetadata: boolean;
 }
 
 export interface ISessionsProviderMetadata {

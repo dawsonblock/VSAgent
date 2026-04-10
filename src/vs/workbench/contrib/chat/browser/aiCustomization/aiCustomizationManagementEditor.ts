@@ -613,8 +613,9 @@ export class AICustomizationManagementEditor extends EditorPane {
 			}
 		}));
 
-		// Folder picker (sessions window only)
-		if (this.workspaceService.isSessionsWindow) {
+		// Folder picker is only shown when the workspace service supports
+		// overriding the active project root for exploration.
+		if (this.workspaceService.isSessionsWindow && this.workspaceService.supportsProjectRootOverride) {
 			this.createFolderPicker(sidebarContent);
 		}
 	}

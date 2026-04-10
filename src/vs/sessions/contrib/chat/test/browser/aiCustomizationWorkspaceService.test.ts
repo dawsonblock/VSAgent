@@ -118,6 +118,31 @@ function createService(options: {
 suite('SessionsAICustomizationWorkspaceService', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
+	test('keeps the active session root authoritative for customizations', () => {
+		const repositoryUri = URI.parse('file:///repo');
+		const worktreeUri = URI.parse('file:///worktree');
+		const submittedActions: unknown[] = [];
+		const directWriteCalls = { count: 0 };
+		const directDeleteCalls = { count: 0 };
+
+		const service = createService({
+			repositoryUri,
+			worktreeUri,
+			submittedActions,
+			directWriteCalls,
+			directDeleteCalls,
+		});
+
+		assert.strictEqual(service.supportsProjectRootOverride, false);
+		assert.strictEqual(service.hasOverrideProjectRoot.get(), false);
+		assert.strictEqual(service.getActiveProjectRoot()?.toString(), worktreeUri.toString());
+
+		service.setOverrideProjectRoot(URI.parse('file:///elsewhere'));
+
+		assert.strictEqual(service.hasOverrideProjectRoot.get(), false);
+		assert.strictEqual(service.getActiveProjectRoot()?.toString(), worktreeUri.toString());
+	});
+
 	test('commitFiles routes repository replication and commit commands through Sessions actions', async () => {
 		const repositoryUri = URI.parse('file:///repo');
 		const worktreeUri = URI.parse('file:///worktree');

@@ -148,6 +148,13 @@ export interface IAICustomizationWorkspaceService {
 	readonly hasOverrideProjectRoot: IObservable<boolean>;
 
 	/**
+	 * Whether this window supports selecting an override project root.
+	 * Sessions keeps customization execution bound to the active session root,
+	 * so it hides override affordances by returning `false` here.
+	 */
+	readonly supportsProjectRootOverride: boolean;
+
+	/**
 	 * Sets a transient override for the active project root.
 	 * While set, `activeProjectRoot` returns this value instead of the
 	 * session- or workspace-derived root. Call `clearOverrideProjectRoot()` to revert.

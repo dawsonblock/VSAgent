@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { derived, IObservable, observableValue, ISettableObservable } from '../../../../base/common/observable.js';
+import { constObservable, derived, IObservable } from '../../../../base/common/observable.js';
 import { relativePath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
@@ -11,7 +11,7 @@ import { IAICustomizationWorkspaceService, AICustomizationManagementSection, ISt
 import { IChatPromptSlashCommand, IPromptsService } from '../../../../workbench/contrib/chat/common/promptSyntax/service/promptsService.js';
 import { ICustomizationHarnessService } from '../../../../workbench/contrib/chat/common/customizationHarnessService.js';
 import { ISession } from '../../../services/sessions/common/session.js';
-import { ISessionsManagementService } from '../../../services/sessions/common/sessionsManagement.js';
+import { IActiveSession, ISessionsManagementService } from '../../../services/sessions/common/sessionsManagement.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { CustomizationCreatorService } from '../../../../workbench/contrib/chat/browser/aiCustomization/customizationCreatorService.js';
 import { PromptsType } from '../../../../workbench/contrib/chat/common/promptSyntax/promptTypes.js';
@@ -36,13 +36,8 @@ export class SessionsAICustomizationWorkspaceService implements IAICustomization
 	declare readonly _serviceBrand: undefined;
 
 	readonly activeProjectRoot: IObservable<URI | undefined>;
-	readonly hasOverrideProjectRoot: IObservable<boolean>;
-
-	/**
-	 * Transient override for the project root. When set, `activeProjectRoot`
-	 * returns this value instead of the session-derived root.
-	 */
-	private readonly _overrideRoot: ISettableObservable<URI | undefined>;
+	readonly hasOverrideProjectRoot = constObservable(false);
+	readonly supportsProjectRootOverride = false;
 
 	constructor(
 		@ISessionsManagementService private readonly sessionsService: ISessionsManagementService,
@@ -53,47 +48,22 @@ export class SessionsAICustomizationWorkspaceService implements IAICustomization
 		@IFileService private readonly fileService: IFileService,
 		@INotificationService private readonly notificationService: INotificationService,
 	) {
-		this._overrideRoot = observableValue(this, undefined);
-
 		this.activeProjectRoot = derived(reader => {
-			const override = this._overrideRoot.read(reader);
-			if (override) {
-				return override;
-			}
 			const session = this.sessionsService.activeSession.read(reader);
-			const repo = session?.workspace.read(reader)?.repositories[0];
-			const root = repo?.workingDirectory ?? repo?.uri;
-			if (root?.scheme === AGENT_HOST_SCHEME) {
-				return undefined;
-			}
-			return root;
-		});
-
-		this.hasOverrideProjectRoot = derived(reader => {
-			return this._overrideRoot.read(reader) !== undefined;
+			return this._getSessionProjectRoot(session);
 		});
 	}
 
 	getActiveProjectRoot(): URI | undefined {
-		const override = this._overrideRoot.get();
-		if (override) {
-			return override;
-		}
-		const session = this.sessionsService.activeSession.get();
-		const repo = session?.workspace.get()?.repositories[0];
-		const root = repo?.workingDirectory ?? repo?.uri;
-		if (root?.scheme === AGENT_HOST_SCHEME) {
-			return undefined;
-		}
-		return root;
+		return this._getSessionProjectRoot(this.sessionsService.activeSession.get());
 	}
 
-	setOverrideProjectRoot(root: URI): void {
-		this._overrideRoot.set(root, undefined);
+	setOverrideProjectRoot(_root: URI): void {
+		// Sessions customization authority stays bound to the active session root.
 	}
 
 	clearOverrideProjectRoot(): void {
-		this._overrideRoot.set(undefined, undefined);
+		// Sessions customization authority stays bound to the active session root.
 	}
 
 	readonly managementSections: readonly AICustomizationManagementSection[] = [
@@ -380,5 +350,14 @@ export class SessionsAICustomizationWorkspaceService implements IAICustomization
 
 	getSkillUIIntegrations(): ReadonlyMap<string, string> {
 		return SessionsAICustomizationWorkspaceService._skillUIIntegrations;
+	}
+
+	private _getSessionProjectRoot(session: IActiveSession | ISession | undefined): URI | undefined {
+		const repo = session?.workspace.get()?.repositories[0];
+		const root = repo?.workingDirectory ?? repo?.uri;
+		if (root?.scheme === AGENT_HOST_SCHEME) {
+			return undefined;
+		}
+		return root;
 	}
 }

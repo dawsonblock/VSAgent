@@ -70,6 +70,7 @@ class AICustomizationWorkspaceService implements IAICustomizationWorkspaceServic
 	};
 
 	readonly hasOverrideProjectRoot = constObservable(false);
+	readonly supportsProjectRootOverride = false;
 	setOverrideProjectRoot(_root: URI): void { }
 	clearOverrideProjectRoot(): void { }
 

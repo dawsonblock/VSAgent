@@ -7,6 +7,7 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable, DisposableMap, DisposableStore, IDisposable } from '../../../../base/common/lifecycle.js';
 import { IObservable, ISettableObservable, autorun, observableValue } from '../../../../base/common/observable.js';
 import { URI } from '../../../../base/common/uri.js';
+import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
 import { IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -15,7 +16,7 @@ import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uri
 import { ActiveSessionProviderIdContext, ActiveSessionTypeContext, IsActiveSessionBackgroundProviderContext, IsNewChatSessionContext } from '../../../common/contextkeys.js';
 import { ISessionActionService } from '../../actions/common/sessionActionService.js';
 import { SessionActionReceipt } from '../../actions/common/sessionActionReceipts.js';
-import { SessionAction, SessionActionResult } from '../../actions/common/sessionActionTypes.js';
+import { SessionAction, SessionActionKind, SessionActionRequestSource, SessionActionResult, SessionActionStatus, SessionCommandLaunchKind } from '../../actions/common/sessionActionTypes.js';
 import { ActiveSessionSupportsMultiChatContext, IActiveSession, ISessionsChangeEvent, ISessionsManagementService } from '../common/sessionsManagement.js';
 import { ISessionsProvidersChangeEvent, ISessionsProvidersService } from './sessionsProvidersService.js';
 import { ISendRequestOptions, ISessionChangeEvent, ISessionsProvider } from '../common/sessionsProvider.js';
@@ -25,7 +26,33 @@ import { InstantiationType, registerSingleton } from '../../../../platform/insta
 const LAST_SELECTED_SESSION_KEY = 'agentSessions.lastSelectedSession';
 const ACTIVE_PROVIDER_KEY = 'sessions.activeProviderId';
 
-class SessionsManagementService extends Disposable implements ISessionsManagementService {
+const enum SessionsManagementCommandId {
+	ArchiveSession = '_sessions.archiveSession',
+	UnarchiveSession = '_sessions.unarchiveSession',
+	DeleteSession = '_sessions.deleteSession',
+	DeleteChat = '_sessions.deleteChat',
+	RenameChat = '_sessions.renameChat',
+	SetRead = '_sessions.setRead',
+}
+
+interface ISessionMutationCommandArgs {
+	readonly providerId: string;
+	readonly sessionId: string;
+}
+
+interface IChatMutationCommandArgs extends ISessionMutationCommandArgs {
+	readonly chatUri: URI;
+}
+
+interface IRenameChatCommandArgs extends IChatMutationCommandArgs {
+	readonly title: string;
+}
+
+interface ISetReadCommandArgs extends ISessionMutationCommandArgs {
+	readonly read: boolean;
+}
+
+export class SessionsManagementService extends Disposable implements ISessionsManagementService {
 
 	declare readonly _serviceBrand: undefined;
 
@@ -405,28 +432,99 @@ class SessionsManagementService extends Disposable implements ISessionsManagemen
 	}
 
 	async archiveSession(session: ISession): Promise<void> {
-		await this._getProvider(session)?.archiveSession(session.sessionId);
+		await this._runManagementCommand(session, SessionsManagementCommandId.ArchiveSession, [{
+			providerId: session.providerId,
+			sessionId: session.sessionId,
+		}]);
 	}
 
 	async unarchiveSession(session: ISession): Promise<void> {
-		await this._getProvider(session)?.unarchiveSession(session.sessionId);
+		await this._runManagementCommand(session, SessionsManagementCommandId.UnarchiveSession, [{
+			providerId: session.providerId,
+			sessionId: session.sessionId,
+		}]);
 	}
 
 	async deleteSession(session: ISession): Promise<void> {
-		await this._getProvider(session)?.deleteSession(session.sessionId);
+		await this._runManagementCommand(session, SessionsManagementCommandId.DeleteSession, [{
+			providerId: session.providerId,
+			sessionId: session.sessionId,
+		}]);
 	}
 
 	async deleteChat(session: ISession, chatUri: URI): Promise<void> {
-		await this._getProvider(session)?.deleteChat(session.sessionId, chatUri);
+		await this._runManagementCommand(session, SessionsManagementCommandId.DeleteChat, [{
+			providerId: session.providerId,
+			sessionId: session.sessionId,
+			chatUri,
+		}]);
 	}
 
 	async renameChat(session: ISession, chatUri: URI, title: string): Promise<void> {
-		await this._getProvider(session)?.renameChat(session.sessionId, chatUri, title);
+		await this._runManagementCommand(session, SessionsManagementCommandId.RenameChat, [{
+			providerId: session.providerId,
+			sessionId: session.sessionId,
+			chatUri,
+			title,
+		}]);
 	}
 
 	setRead(session: ISession, read: boolean): void {
-		this._getProvider(session)?.setRead(session.sessionId, read);
+		void this._runManagementCommand(session, SessionsManagementCommandId.SetRead, [{
+			providerId: session.providerId,
+			sessionId: session.sessionId,
+			read,
+		}]).catch(error => {
+			this.logService.warn('[SessionsManagement] Failed to update read state through Sessions action mediation.', error);
+		});
+	}
+
+	private async _runManagementCommand(session: ISession, command: SessionsManagementCommandId, args: readonly unknown[]): Promise<void> {
+		const result = await this.submitAction(session, {
+			kind: SessionActionKind.RunCommand,
+			requestedBy: SessionActionRequestSource.User,
+			command,
+			args,
+			launchKind: SessionCommandLaunchKind.Command,
+		});
+
+		if (result.status !== SessionActionStatus.Executed) {
+			throw new Error(result.summary ?? `Sessions management command '${command}' did not execute successfully.`);
+		}
 	}
 }
+
+function getSessionsProvider(service: ISessionsProvidersService, providerId: string): ISessionsProvider {
+	const provider = service.getProvider(providerId);
+	if (!provider) {
+		throw new Error(`Sessions provider '${providerId}' not found`);
+	}
+
+	return provider;
+}
+
+CommandsRegistry.registerCommand(SessionsManagementCommandId.ArchiveSession, async (accessor, args: ISessionMutationCommandArgs) => {
+	await getSessionsProvider(accessor.get(ISessionsProvidersService), args.providerId).archiveSession(args.sessionId);
+});
+
+CommandsRegistry.registerCommand(SessionsManagementCommandId.UnarchiveSession, async (accessor, args: ISessionMutationCommandArgs) => {
+	await getSessionsProvider(accessor.get(ISessionsProvidersService), args.providerId).unarchiveSession(args.sessionId);
+});
+
+CommandsRegistry.registerCommand(SessionsManagementCommandId.DeleteSession, async (accessor, args: ISessionMutationCommandArgs) => {
+	await getSessionsProvider(accessor.get(ISessionsProvidersService), args.providerId).deleteSession(args.sessionId);
+});
+
+CommandsRegistry.registerCommand(SessionsManagementCommandId.DeleteChat, async (accessor, args: IChatMutationCommandArgs) => {
+	await getSessionsProvider(accessor.get(ISessionsProvidersService), args.providerId).deleteChat(args.sessionId, URI.revive(args.chatUri));
+});
+
+CommandsRegistry.registerCommand(SessionsManagementCommandId.RenameChat, async (accessor, args: IRenameChatCommandArgs) => {
+	await getSessionsProvider(accessor.get(ISessionsProvidersService), args.providerId).renameChat(args.sessionId, URI.revive(args.chatUri), args.title);
+});
+
+CommandsRegistry.registerCommand(SessionsManagementCommandId.SetRead, (accessor, args: ISetReadCommandArgs) => {
+	getSessionsProvider(accessor.get(ISessionsProvidersService), args.providerId).setRead(args.sessionId, args.read);
+});
 
 registerSingleton(ISessionsManagementService, SessionsManagementService, InstantiationType.Delayed);

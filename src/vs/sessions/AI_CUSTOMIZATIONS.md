@@ -66,7 +66,9 @@ The `IAICustomizationWorkspaceService` interface controls per-window behavior:
 | `managementSections` | All sections except Models | All sections except Models |
 | `getStorageSourceFilter(type)` | Delegates to `ICustomizationHarnessService` | Delegates to `ICustomizationHarnessService` |
 | `isSessionsWindow` | `false` | `true` |
-| `activeProjectRoot` | First workspace folder | Active session worktree |
+| `activeProjectRoot` | First workspace folder | Active session worktree/repository |
+
+In Sessions, the AI Customization workspace service does not allow the UI to override the active project root. Prompt discovery, file creation, save flows, and git-backed customization commits stay anchored to the active session root so folder browsing cannot widen execution authority.
 
 ### ICustomizationHarnessService
 
