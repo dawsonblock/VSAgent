@@ -187,7 +187,7 @@ export class ArchiveAllAgentSessionsAction extends Action2 {
 		}
 
 		for (const session of sessionsToArchive) {
-			session.setArchived(true);
+			agentSessionsService.setSessionArchived(session, true);
 		}
 	}
 }
@@ -218,7 +218,7 @@ export class MarkAllAgentSessionsReadAction extends Action2 {
 		}
 
 		for (const session of sessionsToMarkRead) {
-			session.setRead(true);
+			agentSessionsService.setSessionRead(session, true);
 		}
 	}
 }
@@ -251,6 +251,7 @@ export class ArchiveAgentSessionSectionAction extends Action2 {
 			return;
 		}
 
+		const agentSessionsService = accessor.get(IAgentSessionsService);
 		const dialogService = accessor.get(IDialogService);
 		const storageService = accessor.get(IStorageService);
 
@@ -277,7 +278,7 @@ export class ArchiveAgentSessionSectionAction extends Action2 {
 		}
 
 		for (const session of context.sessions) {
-			session.setArchived(true);
+			agentSessionsService.setSessionArchived(session, true);
 		}
 	}
 }
@@ -308,6 +309,7 @@ export class UnarchiveAgentSessionSectionAction extends Action2 {
 			return;
 		}
 
+		const agentSessionsService = accessor.get(IAgentSessionsService);
 		const dialogService = accessor.get(IDialogService);
 		const storageService = accessor.get(IStorageService);
 
@@ -333,7 +335,7 @@ export class UnarchiveAgentSessionSectionAction extends Action2 {
 		}
 
 		for (const session of context.sessions) {
-			session.setArchived(false);
+			agentSessionsService.setSessionArchived(session, false);
 		}
 	}
 }
@@ -358,8 +360,10 @@ export class MarkAgentSessionSectionReadAction extends Action2 {
 			return;
 		}
 
+		const agentSessionsService = accessor.get(IAgentSessionsService);
+
 		for (const session of context.sessions) {
-			session.setRead(true);
+			agentSessionsService.setSessionRead(session, true);
 		}
 	}
 }
@@ -434,9 +438,11 @@ export class MarkAgentSessionUnreadAction extends BaseAgentSessionAction {
 		});
 	}
 
-	runWithSessions(sessions: IAgentSession[]): void {
+	runWithSessions(sessions: IAgentSession[], accessor: ServicesAccessor): void {
+		const agentSessionsService = accessor.get(IAgentSessionsService);
+
 		for (const session of sessions) {
-			session.setRead(false);
+			agentSessionsService.setSessionRead(session, false);
 		}
 	}
 }
@@ -459,9 +465,11 @@ export class MarkAgentSessionReadAction extends BaseAgentSessionAction {
 		});
 	}
 
-	runWithSessions(sessions: IAgentSession[]): void {
+	runWithSessions(sessions: IAgentSession[], accessor: ServicesAccessor): void {
+		const agentSessionsService = accessor.get(IAgentSessionsService);
+
 		for (const session of sessions) {
-			session.setRead(true);
+			agentSessionsService.setSessionRead(session, true);
 		}
 	}
 }
@@ -497,6 +505,7 @@ export class ArchiveAgentSessionAction extends BaseAgentSessionAction {
 	}
 
 	async runWithSessions(sessions: IAgentSession[], accessor: ServicesAccessor): Promise<void> {
+		const agentSessionsService = accessor.get(IAgentSessionsService);
 		const chatService = accessor.get(IChatService);
 		const dialogService = accessor.get(IDialogService);
 
@@ -511,7 +520,7 @@ export class ArchiveAgentSessionAction extends BaseAgentSessionAction {
 				return;
 			}
 
-			session.setArchived(true);
+			agentSessionsService.setSessionArchived(session, true);
 		}
 	}
 }
@@ -548,9 +557,11 @@ export class UnarchiveAgentSessionAction extends BaseAgentSessionAction {
 		});
 	}
 
-	runWithSessions(sessions: IAgentSession[]): void {
+	runWithSessions(sessions: IAgentSession[], accessor: ServicesAccessor): void {
+		const agentSessionsService = accessor.get(IAgentSessionsService);
+
 		for (const session of sessions) {
-			session.setArchived(false);
+			agentSessionsService.setSessionArchived(session, false);
 		}
 	}
 }

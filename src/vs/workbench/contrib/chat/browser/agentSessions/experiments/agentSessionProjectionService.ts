@@ -181,7 +181,7 @@ export class AgentSessionProjectionService extends Disposable implements IAgentS
 	 * Opens a session in the chat panel without entering projection mode.
 	 */
 	private async _openSessionInChatPanel(session: IAgentSession): Promise<void> {
-		session.setRead(true);
+		this.agentSessionsService.setSessionRead(session, true);
 		await this.chatSessionsService.activateChatSessionItemProvider(session.providerType);
 		await this.chatWidgetService.openSession(session.resource, undefined, {
 			title: { preferred: session.label },

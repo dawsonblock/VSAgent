@@ -124,7 +124,7 @@ export class AgentSessionsPicker {
 				await this.commandService.executeCommand(AGENT_SESSION_DELETE_ACTION_ID, session);
 			} else {
 				const newArchivedState = !session.isArchived();
-				session.setArchived(newArchivedState);
+				this.agentSessionsService.setSessionArchived(session, newArchivedState);
 			}
 
 			if (reopenResolved) {

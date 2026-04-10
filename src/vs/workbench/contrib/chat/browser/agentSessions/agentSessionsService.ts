@@ -18,6 +18,8 @@ export interface IAgentSessionsService {
 	readonly onDidChangeSessionArchivedState: Event<IAgentSession>;
 
 	getSession(resource: URI): IAgentSession | undefined;
+	setSessionArchived(session: IAgentSession | URI, archived: boolean): boolean;
+	setSessionRead(session: IAgentSession | URI, read: boolean): boolean;
 }
 
 export class AgentSessionsService extends Disposable implements IAgentSessionsService {
@@ -52,6 +54,26 @@ export class AgentSessionsService extends Disposable implements IAgentSessionsSe
 
 	getSession(resource: URI): IAgentSession | undefined {
 		return this.model.getSession(resource);
+	}
+
+	setSessionArchived(session: IAgentSession | URI, archived: boolean): boolean {
+		const sessionItem = URI.isUri(session) ? this.getSession(session) : session;
+		if (!sessionItem) {
+			return false;
+		}
+
+		sessionItem.setArchived(archived);
+		return true;
+	}
+
+	setSessionRead(session: IAgentSession | URI, read: boolean): boolean {
+		const sessionItem = URI.isUri(session) ? this.getSession(session) : session;
+		if (!sessionItem) {
+			return false;
+		}
+
+		sessionItem.setRead(read);
+		return true;
 	}
 }
 
