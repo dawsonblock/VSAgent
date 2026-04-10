@@ -7,39 +7,13 @@ import { URI } from '../../../../base/common/uri.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { CommandRiskClass, PolicyDenialMetadata, SessionActionPolicyDecision, SessionActionPolicyInput, SessionActionPolicyMode, SessionPolicySnapshot, ScopeConstraint } from '../common/sessionActionPolicy.js';
-import { ApprovalRequirement, RunCommandAction, SessionAction, SessionActionDenialReason, SessionActionKind, SessionActionRequestSource, SessionCommandLaunchKind } from '../common/sessionActionTypes.js';
-
-const defaultSecretLikeSegments = [
-	'.aws',
-	'.azure',
-	'.env',
-	'.env.local',
-	'.gnupg',
-	'.kube',
-	'.npmrc',
-	'.pypirc',
-	'.ssh',
-	'id_ed25519',
-	'id_rsa',
-];
-
-const defaultCommandAllowPatterns = [
-	/^_git\./,
-	/^_sessions\./,
-	/^github\.copilot\.cli\.sessions\./,
-];
-
-const defaultCommandDenyPatterns = [
-	/&&/,
-	/\|\|/,
-	/;/,
-	/(^|\s)sudo(\s|$)/,
-];
+import { ApprovalRequirement, RunCommandAction, SessionAction, SessionActionDenialReason, SessionActionExecutionContext, SessionActionKind, SessionActionRequestSource, SessionCommandLaunchKind } from '../common/sessionActionTypes.js';
+import { ISessionActionPolicyConfigService } from './sessionActionPolicyConfigService.js';
 
 export interface ISessionActionPolicyService {
 	readonly _serviceBrand: undefined;
 
-	getPolicySnapshot(allowedRoots: readonly URI[]): SessionPolicySnapshot;
+	getPolicySnapshot(executionContext: SessionActionExecutionContext, allowedRoots: readonly URI[]): Promise<SessionPolicySnapshot>;
 	evaluate(input: SessionActionPolicyInput): SessionActionPolicyDecision;
 }
 
@@ -48,20 +22,12 @@ export const ISessionActionPolicyService = createDecorator<ISessionActionPolicyS
 export class SessionActionPolicyService implements ISessionActionPolicyService {
 	declare readonly _serviceBrand: undefined;
 
-	getPolicySnapshot(allowedRoots: readonly URI[]): SessionPolicySnapshot {
-		return {
-			allowedRoots,
-			deniedRoots: [],
-			secretLikePathSegments: defaultSecretLikeSegments,
-			commandAllowPatterns: defaultCommandAllowPatterns,
-			commandDenyPatterns: defaultCommandDenyPatterns,
-			allowWorkspaceReads: true,
-			allowWorkspaceWrites: true,
-			allowCommands: true,
-			allowGitMutation: true,
-			allowWorktreeMutation: true,
-			approvalMode: 'default',
-		};
+	constructor(
+		@ISessionActionPolicyConfigService private readonly _configService: ISessionActionPolicyConfigService,
+	) { }
+
+	getPolicySnapshot(executionContext: SessionActionExecutionContext, allowedRoots: readonly URI[]): Promise<SessionPolicySnapshot> {
+		return this._configService.getPolicySnapshot(executionContext, allowedRoots);
 	}
 
 	evaluate(input: SessionActionPolicyInput): SessionActionPolicyDecision {
@@ -118,7 +84,7 @@ export class SessionActionPolicyService implements ISessionActionPolicyService {
 	}
 
 	private _commandDecision(input: SessionActionPolicyInput, approvedScope: SessionActionPolicyDecision['approvedScope'], scopeConstraints: readonly ScopeConstraint[]): SessionActionPolicyDecision {
-		if (!input.providerCapabilities.canRunCommands || !input.policy.allowCommands) {
+		if (!input.providerCapabilities.canRunCommands) {
 			return this._deny(approvedScope, scopeConstraints, SessionActionDenialReason.ProviderCapabilityMissing, 'The active provider cannot run commands.', CommandRiskClass.ProcessExecution);
 		}
 
@@ -130,6 +96,10 @@ export class SessionActionPolicyService implements ISessionActionPolicyService {
 
 		if (input.policy.commandDenyPatterns.some(pattern => pattern.test(commandLine))) {
 			return this._deny(approvedScope, scopeConstraints, SessionActionDenialReason.PolicyDenied, `The command '${action.command}' is blocked by Sessions policy.`, riskClass, action.command);
+		}
+
+		if (!this._isRiskClassAllowed(input, riskClass)) {
+			return this._deny(approvedScope, scopeConstraints, SessionActionDenialReason.PolicyDenied, `The command '${action.command}' is not permitted by the active Sessions policy.`, riskClass, action.command);
 		}
 
 		if (riskClass === CommandRiskClass.GitMutation && !input.providerCapabilities.canMutateGit) {
@@ -210,6 +180,22 @@ export class SessionActionPolicyService implements ISessionActionPolicyService {
 		}
 
 		return false;
+	}
+
+	private _isRiskClassAllowed(input: SessionActionPolicyInput, riskClass: CommandRiskClass): boolean {
+		switch (riskClass) {
+			case CommandRiskClass.ReadOnly:
+				return input.policy.allowWorkspaceReads;
+			case CommandRiskClass.WorkspaceWrite:
+				return input.policy.allowWorkspaceWrites;
+			case CommandRiskClass.GitMutation:
+				return input.policy.allowGitMutation;
+			case CommandRiskClass.ProcessExecution:
+				return input.policy.allowCommands;
+			case CommandRiskClass.None:
+			default:
+				return true;
+		}
 	}
 
 	private _isInternalCommand(command: string, allowPatterns: readonly RegExp[]): boolean {

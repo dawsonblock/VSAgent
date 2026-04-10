@@ -1,0 +1,314 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+import assert from 'assert';
+import { Codicon } from '../../../../../base/common/codicons.js';
+import { Event } from '../../../../../base/common/event.js';
+import { DisposableStore } from '../../../../../base/common/lifecycle.js';
+import { observableValue } from '../../../../../base/common/observable.js';
+import { URI } from '../../../../../base/common/uri.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { NullLogService } from '../../../../../platform/log/common/log.js';
+import { getDefaultSessionPolicySnapshot, ISessionActionPolicyConfigService } from '../../browser/sessionActionPolicyConfigService.js';
+import { SessionActionPolicyService } from '../../browser/sessionActionPolicyService.js';
+import { SessionActionReceiptService } from '../../browser/sessionActionReceiptService.js';
+import { SessionActionService } from '../../browser/sessionActionService.js';
+import { SessionActionApprovalDecision, ISessionActionApprovalService } from '../../browser/sessionActionApprovalService.js';
+import { ISessionActionExecutorBridge } from '../../browser/sessionActionExecutorBridge.js';
+import { ISessionActionReceiptService, SessionActionApprovalReceipt, SessionActionReceiptStatus } from '../../common/sessionActionReceipts.js';
+import { ISessionActionScopeService, NormalizedSessionActionScope } from '../../common/sessionActionScope.js';
+import { ProviderCapabilitySet } from '../../common/sessionActionPolicy.js';
+import { RunCommandAction, SessionAction, SessionActionDenialReason, SessionActionKind, SessionActionRequestSource, SessionActionResult, SessionActionStatus, SessionCommandLaunchKind, SessionHostKind } from '../../common/sessionActionTypes.js';
+import { ISessionsProvidersService } from '../../../sessions/browser/sessionsProvidersService.js';
+import { ISession, SessionStatus } from '../../../sessions/common/session.js';
+
+suite('SessionActionService', () => {
+	const disposables = ensureNoDisposablesAreLeakedInTestSuite() as Pick<DisposableStore, 'add'>;
+
+	const workspaceRoot = URI.file('/workspace');
+	const repositoryRoot = URI.file('/workspace/repo');
+	const providerId = 'provider';
+	const sessionId = 'session';
+
+	function createProviderCapabilities(overrides?: Partial<ProviderCapabilitySet>): ProviderCapabilitySet {
+		return {
+			multipleChatsPerSession: false,
+			hostKind: SessionHostKind.Local,
+			canReadWorkspace: true,
+			canWriteWorkspace: true,
+			canRunCommands: true,
+			canMutateGit: true,
+			canOpenWorktrees: false,
+			canUseExternalTools: true,
+			requiresApprovalForWrites: true,
+			requiresApprovalForCommands: true,
+			requiresApprovalForGit: true,
+			requiresApprovalForWorktreeActions: true,
+			supportsStructuredApprovals: true,
+			supportsReceiptMetadata: true,
+			...overrides,
+		};
+	}
+
+	function createScope(): NormalizedSessionActionScope {
+		return {
+			requestedScope: {
+				workspaceRoot,
+				projectRoot: repositoryRoot,
+				repositoryPath: repositoryRoot,
+				worktreeRoot: repositoryRoot,
+				cwd: repositoryRoot,
+				hostTarget: {
+					kind: SessionHostKind.Local,
+					providerId,
+				},
+			},
+			workspaceRoot: { path: workspaceRoot, isDirectory: true },
+			projectRoot: { path: repositoryRoot, isDirectory: true },
+			repositoryPath: { path: repositoryRoot, isDirectory: true },
+			worktreeRoot: { path: repositoryRoot, isDirectory: true },
+			cwd: { path: repositoryRoot, isDirectory: true },
+			files: [],
+			hostTarget: {
+				kind: SessionHostKind.Local,
+				providerId,
+			},
+		};
+	}
+
+	function createSession(): ISession {
+		const workspace = observableValue('workspace', {
+			label: 'repo',
+			icon: Codicon.folder,
+			repositories: [{ uri: repositoryRoot, workingDirectory: repositoryRoot, detail: undefined, baseBranchName: undefined, baseBranchProtected: undefined }],
+			requiresWorkspaceTrust: true,
+		});
+
+		return {
+			sessionId,
+			providerId,
+			resource: URI.parse('session-action:/session'),
+			sessionType: 'test',
+			icon: Codicon.account,
+			createdAt: new Date(0),
+			workspace,
+			title: observableValue('title', 'session'),
+			updatedAt: observableValue('updatedAt', new Date(0)),
+			status: observableValue('status', SessionStatus.Completed),
+			changes: observableValue('changes', []),
+			modelId: observableValue('modelId', undefined),
+			mode: observableValue('mode', undefined),
+			loading: observableValue('loading', false),
+			isArchived: observableValue('isArchived', false),
+			isRead: observableValue('isRead', true),
+			description: observableValue('description', undefined),
+			lastTurnEnd: observableValue('lastTurnEnd', undefined),
+			gitHubInfo: observableValue('gitHubInfo', undefined),
+			chats: observableValue('chats', []),
+			mainChat: {} as ISession['mainChat'],
+		} as ISession;
+	}
+
+	function createCommandAction(command: string, requestedBy: SessionActionRequestSource): RunCommandAction {
+		return {
+			kind: SessionActionKind.RunCommand,
+			requestedBy,
+			command,
+			args: command.startsWith('_sessions.') ? [{ sessionId }] : ['test'],
+			cwd: repositoryRoot,
+			launchKind: SessionCommandLaunchKind.Command,
+		};
+	}
+
+	function createHarness(options?: {
+		policyOverrides?: Partial<ReturnType<typeof getDefaultSessionPolicySnapshot>>;
+		providerCapabilityOverrides?: Partial<ProviderCapabilitySet>;
+		approval?: SessionActionApprovalReceipt;
+		executorStatus?: SessionActionStatus.Executed | SessionActionStatus.Failed;
+	}) {
+		const session = createSession();
+		const providerCapabilities = createProviderCapabilities(options?.providerCapabilityOverrides);
+		const approval = options?.approval ?? {
+			required: false,
+			granted: true,
+			source: 'implicit',
+			summary: 'No additional approval was required for this action.',
+			fingerprint: 'test-fingerprint',
+		};
+
+		let approvalCalls = 0;
+		let executeCalls = 0;
+		let lastExecutedAction: SessionAction | undefined;
+
+		const providersService = {
+			_serviceBrand: undefined,
+			onDidChangeProviders: Event.None,
+			registerProvider: () => { throw new Error('Not implemented in test'); },
+			getProviders: () => [],
+			getProvider: (candidateProviderId: string) => candidateProviderId === providerId ? {
+				id: providerId,
+				label: 'Provider',
+				icon: Codicon.account,
+				sessionTypes: [],
+				capabilities: providerCapabilities,
+				browseActions: [],
+				resolveWorkspace: () => session.workspace.get()!,
+				getSessions: () => [session],
+				onDidChangeSessions: Event.None,
+				createNewSession: () => session,
+				setSessionType: () => session,
+				getSessionTypes: () => [],
+				renameChat: async () => { },
+				setModel: () => { },
+				archiveSession: async () => { },
+				unarchiveSession: async () => { },
+				deleteSession: async () => { },
+				deleteChat: async () => { },
+				setRead: () => { },
+				sendAndCreateChat: async () => session,
+			} : undefined,
+			getProviderCapabilities: (candidateProviderId: string) => candidateProviderId === providerId ? providerCapabilities : undefined,
+			getProviderMetadata: () => undefined,
+			resolveProviderHostKind: () => providerCapabilities.hostKind,
+		} as ISessionsProvidersService;
+
+		const scopeService = {
+			_serviceBrand: undefined,
+			resolveScope: () => ({ scope: createScope() }),
+		} as ISessionActionScopeService;
+
+		const policyService = new SessionActionPolicyService({
+			onDidChangePolicy: Event.None,
+			async getPolicySnapshot(_executionContext, allowedRoots) {
+				return {
+					...getDefaultSessionPolicySnapshot(allowedRoots),
+					...options?.policyOverrides,
+					allowedRoots,
+				};
+			},
+		} as ISessionActionPolicyConfigService);
+
+		const approvalService = {
+			_serviceBrand: undefined,
+			async requestApproval(): Promise<SessionActionApprovalDecision> {
+				approvalCalls++;
+				return {
+					approved: approval.granted,
+					approval,
+				};
+			},
+		} as ISessionActionApprovalService;
+
+		const executorBridge = {
+			_serviceBrand: undefined,
+			supports: kind => kind === SessionActionKind.RunCommand,
+			async execute(action): Promise<SessionActionResult> {
+				executeCalls++;
+				lastExecutedAction = action;
+				const runCommandAction = action as RunCommandAction;
+				return {
+					actionId: runCommandAction.id ?? 'unknown',
+					kind: SessionActionKind.RunCommand,
+					status: options?.executorStatus ?? SessionActionStatus.Executed,
+					advisorySources: runCommandAction.advisorySources ?? [],
+					commandLine: [runCommandAction.command, ...(runCommandAction.args ?? []).map(String)].join(' ').trim(),
+					exitCode: options?.executorStatus === SessionActionStatus.Failed ? 1 : 0,
+					stdoutExcerpt: options?.executorStatus === SessionActionStatus.Failed ? undefined : 'command output',
+					stderrExcerpt: options?.executorStatus === SessionActionStatus.Failed ? 'command failed' : undefined,
+					summary: options?.executorStatus === SessionActionStatus.Failed ? 'Command failed.' : 'Command completed successfully.',
+				};
+			},
+		} as ISessionActionExecutorBridge;
+
+		const receiptService = disposables.add(new SessionActionReceiptService()) as ISessionActionReceiptService;
+		const service = disposables.add(new SessionActionService(
+			providersService,
+			scopeService,
+			policyService,
+			approvalService,
+			executorBridge,
+			receiptService,
+			new NullLogService(),
+		));
+
+		return {
+			service,
+			session,
+			getApprovalCalls: () => approvalCalls,
+			getExecuteCalls: () => executeCalls,
+			getLastExecutedAction: () => lastExecutedAction,
+		};
+	}
+
+	test('submitAction denies policy-blocked commands and records a denied receipt', async () => {
+		const harness = createHarness();
+		const deniedEvent = Event.toPromise(harness.service.onDidDenyAction);
+		const action = createCommandAction('npm', SessionActionRequestSource.User);
+
+		const result = await harness.service.submitAction(sessionId, providerId, action);
+		const denied = await deniedEvent;
+		const receipts = harness.service.getReceiptsForSession(sessionId);
+
+		assert.strictEqual(result.status, SessionActionStatus.Denied);
+		assert.strictEqual(result.kind, SessionActionKind.RunCommand);
+		assert.strictEqual(result.denialReason, SessionActionDenialReason.PolicyDenied);
+		assert.strictEqual(harness.getApprovalCalls(), 0);
+		assert.strictEqual(harness.getExecuteCalls(), 0);
+		assert.strictEqual(denied.denialReason, SessionActionDenialReason.PolicyDenied);
+		assert.ok(denied.message?.includes('not permitted by the active Sessions policy'));
+		assert.strictEqual(receipts.length, 1);
+		assert.strictEqual(receipts[0].status, SessionActionReceiptStatus.Denied);
+		assert.strictEqual(receipts[0].denial?.reason, SessionActionDenialReason.PolicyDenied);
+		assert.strictEqual(receipts[0].approval, undefined);
+		assert.ok(receipts[0].error?.message.includes('not permitted by the active Sessions policy'));
+	});
+
+	test('approveAction records an approved receipt without executing the action', async () => {
+		const harness = createHarness({
+			policyOverrides: { allowWorkspaceWrites: true },
+			approval: {
+				required: true,
+				granted: true,
+				source: 'dialog',
+				summary: 'Approved internal command.',
+				fingerprint: 'approval-fingerprint',
+			},
+		});
+		const receiptEvent = Event.toPromise(harness.service.onDidAppendReceipt);
+		const action = createCommandAction('_sessions.archiveSession', SessionActionRequestSource.Session);
+
+		const result = await harness.service.approveAction(sessionId, providerId, action);
+		const receipt = (await receiptEvent).receipt;
+
+		assert.strictEqual(result.status, SessionActionStatus.Approved);
+		assert.strictEqual(result.kind, SessionActionKind.RunCommand);
+		assert.strictEqual(harness.getApprovalCalls(), 1);
+		assert.strictEqual(harness.getExecuteCalls(), 0);
+		assert.strictEqual(receipt.status, SessionActionReceiptStatus.Approved);
+		assert.strictEqual(receipt.approval?.granted, true);
+		assert.strictEqual(receipt.approval?.source, 'dialog');
+		assert.strictEqual(receipt.executionSummary, 'Approved internal command.');
+	});
+
+	test('submitAction executes allowed commands and appends an executed receipt', async () => {
+		const harness = createHarness({
+			policyOverrides: { allowCommands: true },
+		});
+		const receiptEvent = Event.toPromise(harness.service.onDidAppendReceipt);
+		const action = createCommandAction('npm', SessionActionRequestSource.User);
+
+		const result = await harness.service.submitAction(sessionId, providerId, action);
+		const receipt = (await receiptEvent).receipt;
+
+		assert.strictEqual(result.status, SessionActionStatus.Executed);
+		assert.strictEqual(result.kind, SessionActionKind.RunCommand);
+		assert.strictEqual(harness.getApprovalCalls(), 1);
+		assert.strictEqual(harness.getExecuteCalls(), 1);
+		assert.strictEqual((harness.getLastExecutedAction() as RunCommandAction | undefined)?.command, 'npm');
+		assert.strictEqual(receipt.status, SessionActionReceiptStatus.Executed);
+		assert.strictEqual(receipt.stdoutExcerpt, 'command output');
+		assert.strictEqual(receipt.executionSummary, 'Command completed successfully.');
+	});
+});

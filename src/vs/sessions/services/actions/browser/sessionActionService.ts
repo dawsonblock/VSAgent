@@ -81,7 +81,7 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 				return this._deny(sessionId, providerId, normalizedAction, scopeResolution.denialReason ?? SessionActionDenialReason.InvalidPathScope, scopeResolution.message ?? 'The action scope could not be normalized.', session, executionContext);
 			}
 
-			const policySnapshot = this._policyService.getPolicySnapshot(this._collectPolicyRoots(executionContext));
+			const policySnapshot = await this._policyService.getPolicySnapshot(executionContext, this._collectPolicyRoots(executionContext));
 			const policyDecision = this._policyService.evaluate({
 				action: normalizedAction,
 				normalizedScope: scopeResolution.scope,
