@@ -709,6 +709,22 @@ export class AgentSessionsModel extends Disposable implements IAgentSessionsMode
 			return false;
 		}
 
+		if (typeof storedReadDate === 'number') {
+			const readDate = Math.max(storedReadDate, this.readDateBaseline);
+
+			// Install a heuristic to reduce false positives: a user might observe
+			// the output of a session and quickly click on another session before
+			// it is finished. Strictly speaking the session is unread, but we
+			// allow a certain threshold of time to count as read to accommodate.
+			if (readDate >= this.sessionTimeForReadStateTracking(session) - 2000) {
+				return true;
+			}
+		}
+
+		if (typeof session.read === 'boolean') {
+			return session.read || !!this.chatWidgetService.getWidgetBySessionResource(session.resource);
+		}
+
 		const readDate = Math.max(storedReadDate ?? 0, this.readDateBaseline /* Use read date baseline when no read date is stored */);
 
 		// Install a heuristic to reduce false positives: a user might observe

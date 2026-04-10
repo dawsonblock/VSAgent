@@ -17,6 +17,7 @@ import { INotificationService } from '../../../../../platform/notification/commo
 import { localize } from '../../../../../nls.js';
 import { toErrorMessage } from '../../../../../base/common/errorMessage.js';
 import { ILogService } from '../../../../../platform/log/common/log.js';
+import { IAgentSessionsService } from './agentSessionsService.js';
 
 //#region Session Opener Registry
 
@@ -73,12 +74,13 @@ export async function openSession(accessor: ServicesAccessor, session: IAgentSes
 }
 
 async function openSessionDefault(accessor: ServicesAccessor, session: IAgentSession, openOptions?: ISessionOpenOptions): Promise<IChatWidget | undefined> {
+	const agentSessionsService = accessor.get(IAgentSessionsService);
 	const chatSessionsService = accessor.get(IChatSessionsService);
 	const chatWidgetService = accessor.get(IChatWidgetService);
 	const notificationService = accessor.get(INotificationService);
 
 	try {
-		session.setRead(true); // mark as read when opened
+		agentSessionsService.setSessionRead(session, true); // mark as read when opened
 
 		let sessionOptions: IChatEditorOptions;
 		if (isLocalAgentSessionItem(session)) {

@@ -15,7 +15,7 @@ import { IViewContainersRegistry, IViewsRegistry, ViewContainerLocation, Extensi
 import { OutputViewPane } from '../../../../workbench/contrib/output/browser/outputView.js';
 import { OUTPUT_VIEW_ID } from '../../../../workbench/services/output/common/output.js';
 
-const SESSIONS_LOGS_CONTAINER_ID = 'workbench.sessions.panel.logsContainer';
+export const SESSIONS_LOGS_CONTAINER_ID = 'workbench.sessions.panel.logsContainer';
 
 const logsViewIcon = registerIcon('sessions-logs-view-icon', Codicon.output, localize('sessionsLogsViewIcon', 'View icon of the logs view in the sessions window.'));
 

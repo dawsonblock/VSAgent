@@ -1448,7 +1448,7 @@ export class ChatWidget extends Disposable implements IChatWidget {
 
 		const session = this.agentSessionsService.getSession(sessionResource);
 		if (session) {
-			session.setArchived(true);
+			this.agentSessionsService.setSessionArchived(session, true);
 			this.logService.debug('[Delegation] archiveLocalParentSession: session archived successfully');
 		} else {
 			this.logService.warn(`[Delegation] archiveLocalParentSession: session not found in agentSessionsService for ${sessionResource.toString()}`);
@@ -2095,7 +2095,7 @@ export class ChatWidget extends Disposable implements IChatWidget {
 
 				// Mark the session as read when the request completes and the widget is visible
 				if (this.visible && this.viewModel?.sessionResource) {
-					this.agentSessionsService.getSession(this.viewModel.sessionResource)?.setRead(true);
+					this.agentSessionsService.setSessionRead(this.viewModel.sessionResource, true);
 				}
 			}
 		}));

@@ -86,7 +86,7 @@ export class AgentSessionsQuickAccessProvider extends PickerQuickAccessProvider<
 					case archiveButton:
 					case unarchiveButton: {
 						const newArchivedState = !session.isArchived();
-						session.setArchived(newArchivedState);
+						this.agentSessionsService.setSessionArchived(session, newArchivedState);
 						return TriggerAction.REFRESH_PICKER;
 					}
 					default:

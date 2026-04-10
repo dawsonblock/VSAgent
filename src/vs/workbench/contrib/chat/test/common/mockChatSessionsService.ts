@@ -127,6 +127,16 @@ export class MockChatSessionsService implements IChatSessionsService {
 				}));
 	}
 
+	setChatSessionArchived(sessionResource: URI, archived: boolean): boolean {
+		const controller = this.sessionItemControllers.get(sessionResource.scheme)?.controller;
+		return controller?.setChatSessionArchived?.(sessionResource, archived) ?? false;
+	}
+
+	setChatSessionRead(sessionResource: URI, read: boolean): boolean {
+		const controller = this.sessionItemControllers.get(sessionResource.scheme)?.controller;
+		return controller?.setChatSessionRead?.(sessionResource, read) ?? false;
+	}
+
 	getInProgress(): { chatSessionType: string; count: number }[] {
 		return Array.from(this.inProgress.entries()).map(([chatSessionType, count]) => ({ chatSessionType, count }));
 	}

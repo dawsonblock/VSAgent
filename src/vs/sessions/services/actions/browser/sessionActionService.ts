@@ -57,31 +57,32 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 
 	private async _submitAction(sessionId: string, providerId: string, action: SessionAction, execute: boolean): Promise<SessionActionResult> {
 		const normalizedAction = this._normalizeAction(action);
+		const requestedAt = Date.now();
 		this._onDidChangeActiveAction.fire({ sessionId, actionId: normalizedAction.id!, active: true });
 
 		try {
 			const provider = this._sessionsProvidersService.getProvider(providerId);
 			if (!provider) {
-				return this._deny(sessionId, providerId, normalizedAction, SessionActionDenialReason.ProviderCapabilityMissing, 'No Sessions provider was found for this action.', undefined);
+				return this._deny(sessionId, providerId, normalizedAction, SessionActionDenialReason.ProviderCapabilityMissing, 'No Sessions provider was found for this action.', undefined, undefined, undefined, undefined, undefined, requestedAt);
 			}
 
 			const session = provider.getSessions().find(candidate => candidate.sessionId === sessionId);
 			if (!session) {
-				return this._deny(sessionId, providerId, normalizedAction, SessionActionDenialReason.PolicyDenied, 'No active session was found for this action.', undefined);
+				return this._deny(sessionId, providerId, normalizedAction, SessionActionDenialReason.PolicyDenied, 'No active session was found for this action.', undefined, undefined, undefined, undefined, undefined, requestedAt);
 			}
 
 			const capabilities = this._sessionsProvidersService.getProviderCapabilities(providerId, sessionId);
 			if (!capabilities) {
-				return this._deny(sessionId, providerId, normalizedAction, SessionActionDenialReason.ProviderCapabilityMissing, 'The Sessions provider did not report a capability set.', session);
+				return this._deny(sessionId, providerId, normalizedAction, SessionActionDenialReason.ProviderCapabilityMissing, 'The Sessions provider did not report a capability set.', session, undefined, undefined, undefined, undefined, requestedAt);
 			}
 
 			const executionContext = this._createExecutionContext(session, capabilities);
 			const scopeResolution = this._scopeService.resolveScope(normalizedAction, executionContext, capabilities);
 			if (!scopeResolution.scope || scopeResolution.denialReason) {
-				return this._deny(sessionId, providerId, normalizedAction, scopeResolution.denialReason ?? SessionActionDenialReason.InvalidPathScope, scopeResolution.message ?? 'The action scope could not be normalized.', session, executionContext);
+				return this._deny(sessionId, providerId, normalizedAction, scopeResolution.denialReason ?? SessionActionDenialReason.InvalidPathScope, scopeResolution.message ?? 'The action scope could not be normalized.', session, executionContext, undefined, undefined, undefined, requestedAt);
 			}
 
-			const policySnapshot = this._policyService.getPolicySnapshot(this._collectPolicyRoots(executionContext));
+			const policySnapshot = await this._policyService.getPolicySnapshot(executionContext, this._collectPolicyRoots(executionContext));
 			const policyDecision = this._policyService.evaluate({
 				action: normalizedAction,
 				normalizedScope: scopeResolution.scope,
@@ -92,13 +93,15 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 			});
 
 			if (policyDecision.mode === SessionActionPolicyMode.Deny) {
-				return this._deny(sessionId, providerId, normalizedAction, policyDecision.denialReason ?? SessionActionDenialReason.PolicyDenied, policyDecision.denialMetadata?.message ?? 'The Sessions action policy denied this request.', session, executionContext, scopeResolution.scope, policyDecision.denialMetadata);
+				return this._deny(sessionId, providerId, normalizedAction, policyDecision.denialReason ?? SessionActionDenialReason.PolicyDenied, policyDecision.denialMetadata?.message ?? 'The Sessions action policy denied this request.', session, executionContext, scopeResolution.scope, policyDecision.denialMetadata, undefined, requestedAt);
 			}
 
 			const approvalDecision = await this._approvalService.requestApproval(normalizedAction, policyDecision, capabilities);
 			if (!approvalDecision.approved) {
-				return this._deny(sessionId, providerId, normalizedAction, SessionActionDenialReason.ApprovalDenied, approvalDecision.approval.summary, session, executionContext, scopeResolution.scope, undefined, approvalDecision.approval);
+				return this._deny(sessionId, providerId, normalizedAction, SessionActionDenialReason.ApprovalDenied, approvalDecision.approval.summary, session, executionContext, scopeResolution.scope, undefined, approvalDecision.approval, requestedAt);
 			}
+
+			const decidedAt = Date.now();
 
 			if (!execute) {
 				const approvedResult = this._createApprovedResult(normalizedAction, approvalDecision.approval);
@@ -110,6 +113,9 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 					requestedScope: this._toScopeSummary(scopeResolution.scope, executionContext.hostTarget),
 					approvedScope: this._toScopeSummary(scopeResolution.scope, executionContext.hostTarget),
 					status: SessionActionReceiptStatus.Approved,
+					requestedAt,
+					decidedAt,
+					completedAt: decidedAt,
 					approval: approvalDecision.approval,
 					executionResult: approvedResult,
 				});
@@ -123,10 +129,11 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 			}
 
 			if (!this._executorBridge.supports(normalizedAction.kind)) {
-				return this._deny(sessionId, providerId, normalizedAction, SessionActionDenialReason.UnsupportedAction, `Action kind '${normalizedAction.kind}' is not yet mediated by the Sessions executor bridge.`, session, executionContext, scopeResolution.scope, undefined, approvalDecision.approval);
+				return this._deny(sessionId, providerId, normalizedAction, SessionActionDenialReason.UnsupportedAction, `Action kind '${normalizedAction.kind}' is not yet mediated by the Sessions executor bridge.`, session, executionContext, scopeResolution.scope, undefined, approvalDecision.approval, requestedAt, decidedAt, decidedAt);
 			}
 
 			const executionResult = await this._executorBridge.execute(normalizedAction, scopeResolution.scope);
+			const completedAt = Date.now();
 			const receipt = this._createReceipt({
 				action: normalizedAction,
 				sessionId,
@@ -135,6 +142,9 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 				requestedScope: this._toScopeSummary(scopeResolution.scope, executionContext.hostTarget),
 				approvedScope: this._toScopeSummary(scopeResolution.scope, executionContext.hostTarget),
 				status: executionResult.status === SessionActionStatus.Executed ? SessionActionReceiptStatus.Executed : SessionActionReceiptStatus.Failed,
+				requestedAt,
+				decidedAt,
+				completedAt,
 				approval: approvalDecision.approval,
 				executionResult,
 			});
@@ -147,7 +157,7 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 			};
 		} catch (error) {
 			this._logService.error('[SessionActionService] submitAction failed', error);
-			return this._deny(sessionId, providerId, normalizedAction, SessionActionDenialReason.ExecutionFailed, error instanceof Error ? error.message : 'An unknown error occurred while executing the Sessions action.', undefined);
+			return this._deny(sessionId, providerId, normalizedAction, SessionActionDenialReason.ExecutionFailed, error instanceof Error ? error.message : 'An unknown error occurred while executing the Sessions action.', undefined, undefined, undefined, undefined, undefined, requestedAt);
 		} finally {
 			this._onDidChangeActiveAction.fire({ sessionId, actionId: normalizedAction.id!, active: false });
 		}
@@ -197,7 +207,7 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 		return roots;
 	}
 
-	private _deny(sessionId: string, providerId: string, action: SessionAction, denialReason: SessionActionDenialReason, message: string, session: ISession | undefined, executionContext?: SessionActionExecutionContext, normalizedScope?: NormalizedSessionActionScope, denialMetadata?: PolicyDenialMetadata, approval?: SessionActionReceipt['approval']): SessionActionResult {
+	private _deny(sessionId: string, providerId: string, action: SessionAction, denialReason: SessionActionDenialReason, message: string, session: ISession | undefined, executionContext?: SessionActionExecutionContext, normalizedScope?: NormalizedSessionActionScope, denialMetadata?: PolicyDenialMetadata, approval?: SessionActionReceipt['approval'], requestedAt?: number, decidedAt?: number, completedAt?: number): SessionActionResult {
 		const repository = session?.workspace.get()?.repositories[0];
 		const context = executionContext ?? {
 			sessionId,
@@ -217,6 +227,9 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 
 		const scopeSummary = this._toScopeSummary(normalizedScope, context.hostTarget);
 		const deniedResult = this._createDeniedResult(action, denialReason, message, '', action.id ?? generateUuid());
+		const receiptRequestedAt = requestedAt ?? Date.now();
+		const receiptDecidedAt = decidedAt ?? Date.now();
+		const receiptCompletedAt = completedAt ?? receiptDecidedAt;
 		const receipt = this._createReceipt({
 			action,
 			sessionId,
@@ -225,6 +238,9 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 			requestedScope: scopeSummary,
 			approvedScope: scopeSummary,
 			status: SessionActionReceiptStatus.Denied,
+			requestedAt: receiptRequestedAt,
+			decidedAt: receiptDecidedAt,
+			completedAt: receiptCompletedAt,
 			approval,
 			executionResult: deniedResult,
 			denial: denialMetadata,
@@ -247,11 +263,13 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 		requestedScope: SessionActionReceiptScopeSummary;
 		approvedScope: SessionActionReceiptScopeSummary;
 		status: SessionActionReceiptStatus;
+		requestedAt: number;
+		decidedAt: number;
+		completedAt: number;
 		executionResult: SessionActionResult;
 		approval?: SessionActionReceipt['approval'];
 		denial?: SessionActionReceipt['denial'];
 	}): SessionActionReceipt {
-		const now = Date.now();
 		const executionResult = options.executionResult;
 		return {
 			id: generateUuid(),
@@ -263,9 +281,9 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 			actionKind: options.action.kind,
 			requestedScope: options.requestedScope,
 			approvedScope: options.approvedScope,
-			requestedAt: now,
-			decidedAt: now,
-			completedAt: now,
+			requestedAt: options.requestedAt,
+			decidedAt: options.decidedAt,
+			completedAt: options.completedAt,
 			status: options.status,
 			filesTouched: this._getFilesTouched(executionResult, options.approvedScope.files),
 			cwd: options.approvedScope.cwd,

@@ -447,8 +447,6 @@ export class RemoteAgentHostSessionsProvider extends Disposable implements ISess
 		const rawId = this._rawIdFromChatId(sessionId);
 		const cached = rawId ? this._sessionCache.get(rawId) : undefined;
 		if (cached && rawId) {
-			cached.isArchived.set(true, undefined);
-			this._onDidChangeSessions.fire({ added: [], removed: [], changed: [this._chatToSession(cached)] });
 			if (this._connection) {
 				const action = { type: ActionType.SessionIsDoneChanged as const, session: AgentSession.uri(cached.agentProvider, rawId).toString(), isDone: true };
 				this._connection.dispatch(action);
@@ -460,8 +458,6 @@ export class RemoteAgentHostSessionsProvider extends Disposable implements ISess
 		const rawId = this._rawIdFromChatId(sessionId);
 		const cached = rawId ? this._sessionCache.get(rawId) : undefined;
 		if (cached && rawId) {
-			cached.isArchived.set(false, undefined);
-			this._onDidChangeSessions.fire({ added: [], removed: [], changed: [this._chatToSession(cached)] });
 			if (this._connection) {
 				const action = { type: ActionType.SessionIsDoneChanged as const, session: AgentSession.uri(cached.agentProvider, rawId).toString(), isDone: false };
 				this._connection.dispatch(action);
@@ -474,8 +470,6 @@ export class RemoteAgentHostSessionsProvider extends Disposable implements ISess
 		const cached = rawId ? this._sessionCache.get(rawId) : undefined;
 		if (cached && rawId && this._connection) {
 			await this._connection.disposeSession(AgentSession.uri(cached.agentProvider, rawId));
-			this._sessionCache.delete(rawId);
-			this._onDidChangeSessions.fire({ added: [], removed: [this._chatToSession(cached)], changed: [] });
 		}
 	}
 
@@ -483,8 +477,6 @@ export class RemoteAgentHostSessionsProvider extends Disposable implements ISess
 		const rawId = this._rawIdFromChatId(sessionId);
 		const cached = rawId ? this._sessionCache.get(rawId) : undefined;
 		if (cached && rawId && this._connection) {
-			cached.title.set(_title, undefined);
-			this._onDidChangeSessions.fire({ added: [], removed: [], changed: [this._chatToSession(cached)] });
 			const action = { type: ActionType.SessionTitleChanged as const, session: AgentSession.uri(cached.agentProvider, rawId).toString(), title: _title };
 			this._connection.dispatch(action);
 		}
@@ -498,7 +490,6 @@ export class RemoteAgentHostSessionsProvider extends Disposable implements ISess
 		const rawId = this._rawIdFromChatId(sessionId);
 		const cached = rawId ? this._sessionCache.get(rawId) : undefined;
 		if (cached) {
-			cached.isRead.set(read, undefined);
 			if (this._connection && rawId) {
 				const action = { type: ActionType.SessionIsReadChanged as const, session: AgentSession.uri(cached.agentProvider, rawId).toString(), isRead: read };
 				this._connection.dispatch(action);

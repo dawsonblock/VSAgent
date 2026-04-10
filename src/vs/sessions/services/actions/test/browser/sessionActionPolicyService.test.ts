@@ -4,9 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
+import { Event } from '../../../../../base/common/event.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { SessionActionPolicyService } from '../../browser/sessionActionPolicyService.js';
+import { getDefaultSessionPolicySnapshot, ISessionActionPolicyConfigService } from '../../browser/sessionActionPolicyConfigService.js';
 import { NormalizedSessionActionScope } from '../../common/sessionActionScope.js';
 import { CommandRiskClass, ProviderCapabilitySet } from '../../common/sessionActionPolicy.js';
 import { SessionActionDenialReason, SessionActionKind, SessionActionRequestSource, SessionCommandLaunchKind, SessionHostKind } from '../../common/sessionActionTypes.js';
@@ -14,7 +16,6 @@ import { SessionActionDenialReason, SessionActionKind, SessionActionRequestSourc
 suite('SessionActionPolicyService', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	const service = new SessionActionPolicyService();
 	const root = URI.file('/workspace');
 	const repository = URI.file('/workspace/repo');
 
@@ -81,7 +82,21 @@ suite('SessionActionPolicyService', () => {
 		};
 	}
 
-	test('denies git mutation commands when provider lacks git mutation capability', () => {
+	function createService(policyOverrides?: Partial<ReturnType<typeof getDefaultSessionPolicySnapshot>>): SessionActionPolicyService {
+		return new SessionActionPolicyService({
+			onDidChangePolicy: Event.None,
+			async getPolicySnapshot(_executionContext, allowedRoots) {
+				return {
+					...getDefaultSessionPolicySnapshot(allowedRoots),
+					...policyOverrides,
+					allowedRoots,
+				};
+			},
+		} as ISessionActionPolicyConfigService);
+	}
+
+	test('denies git mutation commands when provider lacks git mutation capability', async () => {
+		const service = createService({ allowGitMutation: true });
 		const decision = service.evaluate({
 			action: {
 				kind: SessionActionKind.RunCommand,
@@ -93,7 +108,7 @@ suite('SessionActionPolicyService', () => {
 			normalizedScope: createScope(),
 			providerCapabilities: createProviderCapabilities({ canMutateGit: false }),
 			executionContext: createExecutionContext(),
-			policy: service.getPolicySnapshot([root, repository]),
+			policy: await service.getPolicySnapshot(createExecutionContext(), [root, repository]),
 			requestedPermissionMode: undefined,
 		});
 
@@ -102,7 +117,8 @@ suite('SessionActionPolicyService', () => {
 		assert.strictEqual(decision.commandRiskClass, CommandRiskClass.GitMutation);
 	});
 
-	test('denies external commands when provider cannot use external tools', () => {
+	test('denies external commands when provider cannot use external tools', async () => {
+		const service = createService({ allowCommands: true });
 		const decision = service.evaluate({
 			action: {
 				kind: SessionActionKind.RunCommand,
@@ -113,7 +129,7 @@ suite('SessionActionPolicyService', () => {
 			normalizedScope: createScope(),
 			providerCapabilities: createProviderCapabilities({ canUseExternalTools: false }),
 			executionContext: createExecutionContext(),
-			policy: service.getPolicySnapshot([root, repository]),
+			policy: await service.getPolicySnapshot(createExecutionContext(), [root, repository]),
 			requestedPermissionMode: undefined,
 		});
 
@@ -122,7 +138,8 @@ suite('SessionActionPolicyService', () => {
 		assert.strictEqual(decision.commandRiskClass, CommandRiskClass.ProcessExecution);
 	});
 
-	test('allows internal Sessions commands when provider cannot use external tools', () => {
+	test('allows internal Sessions commands when provider cannot use external tools', async () => {
+		const service = createService({ allowWorkspaceWrites: true });
 		const decision = service.evaluate({
 			action: {
 				kind: SessionActionKind.RunCommand,
@@ -134,7 +151,7 @@ suite('SessionActionPolicyService', () => {
 			normalizedScope: createScope(),
 			providerCapabilities: createProviderCapabilities({ canUseExternalTools: false }),
 			executionContext: createExecutionContext(),
-			policy: service.getPolicySnapshot([root, repository]),
+			policy: await service.getPolicySnapshot(createExecutionContext(), [root, repository]),
 			requestedPermissionMode: undefined,
 		});
 
@@ -142,7 +159,8 @@ suite('SessionActionPolicyService', () => {
 		assert.strictEqual(decision.commandRiskClass, CommandRiskClass.WorkspaceWrite);
 	});
 
-	test('requires approval for user git mutation commands when provider requires git approvals', () => {
+	test('requires approval for user git mutation commands when provider requires git approvals', async () => {
+		const service = createService({ allowGitMutation: true });
 		const decision = service.evaluate({
 			action: {
 				kind: SessionActionKind.RunCommand,
@@ -154,7 +172,7 @@ suite('SessionActionPolicyService', () => {
 			normalizedScope: createScope(),
 			providerCapabilities: createProviderCapabilities(),
 			executionContext: createExecutionContext(),
-			policy: service.getPolicySnapshot([root, repository]),
+			policy: await service.getPolicySnapshot(createExecutionContext(), [root, repository]),
 			requestedPermissionMode: undefined,
 		});
 
@@ -162,7 +180,8 @@ suite('SessionActionPolicyService', () => {
 		assert.strictEqual(decision.commandRiskClass, CommandRiskClass.GitMutation);
 	});
 
-	test('allows git inspection without git mutation capability', () => {
+	test('allows git inspection without git mutation capability', async () => {
+		const service = createService();
 		const decision = service.evaluate({
 			action: {
 				kind: SessionActionKind.GitStatus,
@@ -172,11 +191,56 @@ suite('SessionActionPolicyService', () => {
 			normalizedScope: createScope(),
 			providerCapabilities: createProviderCapabilities({ canMutateGit: false }),
 			executionContext: createExecutionContext(),
-			policy: service.getPolicySnapshot([root, repository]),
+			policy: await service.getPolicySnapshot(createExecutionContext(), [root, repository]),
 			requestedPermissionMode: undefined,
 		});
 
 		assert.strictEqual(decision.mode, 'allow');
 		assert.strictEqual(decision.commandRiskClass, CommandRiskClass.ReadOnly);
+	});
+
+	test('denies internal Sessions commands when workspace writes are disabled by policy', async () => {
+		const service = createService();
+		const decision = service.evaluate({
+			action: {
+				kind: SessionActionKind.RunCommand,
+				requestedBy: SessionActionRequestSource.User,
+				command: '_sessions.archiveSession',
+				args: [{ providerId: 'provider', sessionId: 'session' }],
+				launchKind: SessionCommandLaunchKind.Command,
+			},
+			normalizedScope: createScope(),
+			providerCapabilities: createProviderCapabilities(),
+			executionContext: createExecutionContext(),
+			policy: await service.getPolicySnapshot(createExecutionContext(), [root, repository]),
+			requestedPermissionMode: undefined,
+		});
+
+		assert.strictEqual(decision.mode, 'deny');
+		assert.strictEqual(decision.denialReason, SessionActionDenialReason.PolicyDenied);
+		assert.strictEqual(decision.commandRiskClass, CommandRiskClass.WorkspaceWrite);
+	});
+
+	test('denies external commands when command execution is disabled by policy', async () => {
+		const service = createService();
+		const decision = service.evaluate({
+			action: {
+				kind: SessionActionKind.RunCommand,
+				requestedBy: SessionActionRequestSource.User,
+				command: 'npm',
+				args: ['test'],
+				cwd: repository,
+				launchKind: SessionCommandLaunchKind.Command,
+			},
+			normalizedScope: createScope(),
+			providerCapabilities: createProviderCapabilities(),
+			executionContext: createExecutionContext(),
+			policy: await service.getPolicySnapshot(createExecutionContext(), [root, repository]),
+			requestedPermissionMode: undefined,
+		});
+
+		assert.strictEqual(decision.mode, 'deny');
+		assert.strictEqual(decision.denialReason, SessionActionDenialReason.PolicyDenied);
+		assert.strictEqual(decision.commandRiskClass, CommandRiskClass.ProcessExecution);
 	});
 });
