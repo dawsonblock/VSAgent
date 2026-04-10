@@ -146,7 +146,7 @@ SessionActionService
 
 Location:
 
-services/actions/browser/sessionActionService.ts
+src/vs/sessions/services/actions/browser/sessionActionService.ts
 
 This is the authority boundary.
 
