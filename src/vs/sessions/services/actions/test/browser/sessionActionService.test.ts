@@ -311,4 +311,27 @@ suite('SessionActionService', () => {
 		assert.strictEqual(receipt.stdoutExcerpt, 'command output');
 		assert.strictEqual(receipt.executionSummary, 'Command completed successfully.');
 	});
+
+	test('submitAction records ordered receipt timestamps across mediation and execution', async () => {
+		const harness = createHarness({
+			policyOverrides: { allowCommands: true },
+		});
+		const originalDateNow = Date.now;
+		let tick = 0;
+		Date.now = () => {
+			tick += 100;
+			return tick;
+		};
+
+		try {
+			const receiptEvent = Event.toPromise(harness.service.onDidAppendReceipt);
+			await harness.service.submitAction(sessionId, providerId, createCommandAction('npm', SessionActionRequestSource.User));
+			const receipt = (await receiptEvent).receipt;
+
+			assert.ok(receipt.requestedAt < receipt.decidedAt);
+			assert.ok(receipt.decidedAt < (receipt.completedAt ?? 0));
+		} finally {
+			Date.now = originalDateNow;
+		}
+	});
 });
