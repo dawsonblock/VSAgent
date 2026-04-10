@@ -57,6 +57,10 @@ class MockAgentHostService extends mock<IAgentHostService>() {
 		this.disposedSessions.push(session);
 		const rawId = AgentSession.id(session);
 		this._sessions.delete(rawId);
+		this.fireNotification({
+			type: NotificationType.SessionRemoved,
+			session: session.toString(),
+		});
 	}
 
 	dispatchAction(action: ISessionAction | ITerminalAction, clientId: string, clientSeq: number): void {
@@ -327,7 +331,7 @@ suite('LocalAgentHostSessionsProvider', () => {
 		assert.strictEqual(provider.getSessions().find(s => s.title.get() === 'To Delete'), undefined);
 	});
 
-	test('setRead toggles read state locally', () => {
+	test('setRead dispatches and waits for echoed read state', () => {
 		const provider = createProvider(disposables, agentHost);
 		fireSessionAdded(agentHost, 'read-sess', { title: 'Read Test' });
 
@@ -337,6 +341,20 @@ suite('LocalAgentHostSessionsProvider', () => {
 
 		assert.strictEqual(target!.isRead.get(), true);
 		provider.setRead(target!.sessionId, false);
+		assert.strictEqual(agentHost.dispatchedActions.length, 1);
+		assert.strictEqual(agentHost.dispatchedActions[0].action.type, ActionType.SessionIsReadChanged);
+		assert.strictEqual(target!.isRead.get(), true);
+
+		agentHost.fireAction({
+			action: {
+				type: ActionType.SessionIsReadChanged,
+				session: AgentSession.uri('copilot', 'read-sess').toString(),
+				isRead: false,
+			},
+			serverSeq: 1,
+			origin: { clientId: agentHost.clientId, clientSeq: 0 },
+		});
+
 		assert.strictEqual(target!.isRead.get(), false);
 	});
 
@@ -362,7 +380,7 @@ suite('LocalAgentHostSessionsProvider', () => {
 		assert.strictEqual(dispatched.clientId, 'test-local-client');
 	});
 
-	test('renameChat updates local title optimistically', async () => {
+	test('renameChat does not update local title optimistically', async () => {
 		const provider = createProvider(disposables, agentHost);
 		fireSessionAdded(agentHost, 'rename-opt', { title: 'Before' });
 
@@ -371,7 +389,7 @@ suite('LocalAgentHostSessionsProvider', () => {
 		assert.ok(target);
 
 		await provider.renameChat(target!.sessionId, target!.resource, 'After');
-		assert.strictEqual(target!.title.get(), 'After');
+		assert.strictEqual(target!.title.get(), 'Before');
 	});
 
 	test('renameChat is no-op for unknown session', async () => {

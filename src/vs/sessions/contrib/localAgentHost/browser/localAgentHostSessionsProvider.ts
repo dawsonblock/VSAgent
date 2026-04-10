@@ -373,8 +373,6 @@ export class LocalAgentHostSessionsProvider extends Disposable implements ISessi
 		const rawId = this._rawIdFromChatId(sessionId);
 		const cached = rawId ? this._sessionCache.get(rawId) : undefined;
 		if (cached && rawId) {
-			cached.isArchived.set(true, undefined);
-			this._onDidChangeSessions.fire({ added: [], removed: [], changed: [cached] });
 			const action = { type: ActionType.SessionIsDoneChanged as const, session: AgentSession.uri(cached.agentProvider, rawId).toString(), isDone: true };
 			this._agentHostService.dispatch(action);
 		}
@@ -384,8 +382,6 @@ export class LocalAgentHostSessionsProvider extends Disposable implements ISessi
 		const rawId = this._rawIdFromChatId(sessionId);
 		const cached = rawId ? this._sessionCache.get(rawId) : undefined;
 		if (cached && rawId) {
-			cached.isArchived.set(false, undefined);
-			this._onDidChangeSessions.fire({ added: [], removed: [], changed: [cached] });
 			const action = { type: ActionType.SessionIsDoneChanged as const, session: AgentSession.uri(cached.agentProvider, rawId).toString(), isDone: false };
 			this._agentHostService.dispatch(action);
 		}
@@ -396,8 +392,6 @@ export class LocalAgentHostSessionsProvider extends Disposable implements ISessi
 		const cached = rawId ? this._sessionCache.get(rawId) : undefined;
 		if (cached && rawId) {
 			await this._agentHostService.disposeSession(AgentSession.uri(cached.agentProvider, rawId));
-			this._sessionCache.delete(rawId);
-			this._onDidChangeSessions.fire({ added: [], removed: [cached], changed: [] });
 		}
 	}
 
@@ -405,8 +399,6 @@ export class LocalAgentHostSessionsProvider extends Disposable implements ISessi
 		const rawId = this._rawIdFromChatId(sessionId);
 		const cached = rawId ? this._sessionCache.get(rawId) : undefined;
 		if (cached && rawId) {
-			cached.title.set(title, undefined);
-			this._onDidChangeSessions.fire({ added: [], removed: [], changed: [cached] });
 			const action = { type: ActionType.SessionTitleChanged as const, session: AgentSession.uri(cached.agentProvider, rawId).toString(), title };
 			this._agentHostService.dispatch(action);
 		}
@@ -420,7 +412,6 @@ export class LocalAgentHostSessionsProvider extends Disposable implements ISessi
 		const rawId = this._rawIdFromChatId(sessionId);
 		const cached = rawId ? this._sessionCache.get(rawId) : undefined;
 		if (cached && rawId) {
-			cached.isRead.set(read, undefined);
 			const action = { type: ActionType.SessionIsReadChanged as const, session: AgentSession.uri(cached.agentProvider, rawId).toString(), isRead: read };
 			this._agentHostService.dispatch(action);
 		}

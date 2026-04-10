@@ -16,7 +16,7 @@ import { timeout } from '../../../../../../base/common/async.js';
 import { ILogService, NullLogService } from '../../../../../../platform/log/common/log.js';
 import { IConfigurationService } from '../../../../../../platform/configuration/common/configuration.js';
 import { IAgentCreateSessionConfig, IAgentHostService, IAgentSessionMetadata, AgentSession } from '../../../../../../platform/agentHost/common/agentService.js';
-import { isSessionAction, type IActionEnvelope, type INotification, type ISessionAction, type ITerminalAction, type IToolCallConfirmedAction, type ITurnStartedAction } from '../../../../../../platform/agentHost/common/state/sessionActions.js';
+import { ActionType, isSessionAction, type IActionEnvelope, type INotification, type ISessionAction, type ITerminalAction, type IToolCallConfirmedAction, type ITurnStartedAction } from '../../../../../../platform/agentHost/common/state/sessionActions.js';
 import type { IStateSnapshot } from '../../../../../../platform/agentHost/common/state/sessionProtocol.js';
 import type { ICustomizationRef } from '../../../../../../platform/agentHost/common/state/protocol/state.js';
 import { SessionLifecycle, SessionStatus, TurnState, ToolCallStatus, ToolCallConfirmationReason, createSessionState, createActiveTurn, ROOT_STATE_URI, PolicyState, ResponsePartKind, StateComponents, type ISessionState, type ISessionSummary, IRootState } from '../../../../../../platform/agentHost/common/state/sessionState.js';
@@ -1792,6 +1792,20 @@ suite('AgentHostChatContribution', () => {
 			assert.strictEqual(controller.items[0].description, 'My Remote Host');
 		});
 
+		test('list controller preserves archived and read metadata', async () => {
+			const { instantiationService, agentHostService } = createTestServices(disposables);
+
+			const controller = disposables.add(instantiationService.createInstance(
+				AgentHostSessionListController, 'remote-test', 'copilot', agentHostService, 'My Remote Host', 'local'));
+
+			agentHostService.addSession({ session: AgentSession.uri('copilot', 'sess-meta'), startTime: 1000, modifiedTime: 2000, summary: 'Test session', isDone: true, isRead: false });
+			await controller.refresh(CancellationToken.None);
+
+			assert.strictEqual(controller.items.length, 1);
+			assert.strictEqual(controller.items[0].archived, true);
+			assert.strictEqual(controller.items[0].read, false);
+		});
+
 		test('list controller omits description when undefined', async () => {
 			const { instantiationService, agentHostService } = createTestServices(disposables);
 
@@ -1803,6 +1817,47 @@ suite('AgentHostChatContribution', () => {
 
 			assert.strictEqual(controller.items.length, 1);
 			assert.strictEqual(controller.items[0].description, undefined);
+		});
+
+		test('list controller dispatches archive and read mutations through the connection', async () => {
+			const { instantiationService, agentHostService } = createTestServices(disposables);
+
+			const controller = disposables.add(instantiationService.createInstance(
+				AgentHostSessionListController, 'remote-test', 'copilot', agentHostService, 'My Remote Host', 'local'));
+
+			assert.strictEqual(controller.setChatSessionArchived(URI.from({ scheme: 'remote-test', path: '/sess-dispatch' }), true), true);
+			assert.strictEqual(controller.setChatSessionRead(URI.from({ scheme: 'remote-test', path: '/sess-dispatch' }), false), true);
+			assert.strictEqual(controller.setChatSessionRead(URI.from({ scheme: 'other', path: '/sess-dispatch' }), false), false);
+
+			assert.strictEqual(agentHostService.dispatchedActions.length, 2);
+			assert.deepStrictEqual(agentHostService.dispatchedActions.map(d => d.action.type), [
+				ActionType.SessionIsDoneChanged,
+				ActionType.SessionIsReadChanged,
+			]);
+		});
+
+		test('list controller updates cached items from echoed read and archive actions', async () => {
+			const { instantiationService, agentHostService } = createTestServices(disposables);
+
+			const controller = disposables.add(instantiationService.createInstance(
+				AgentHostSessionListController, 'remote-test', 'copilot', agentHostService, 'My Remote Host', 'local'));
+
+			agentHostService.addSession({ session: AgentSession.uri('copilot', 'sess-echo'), startTime: 1000, modifiedTime: 2000, summary: 'Test session', isDone: false, isRead: true });
+			await controller.refresh(CancellationToken.None);
+
+			agentHostService.fireAction({
+				action: { type: ActionType.SessionIsDoneChanged, session: AgentSession.uri('copilot', 'sess-echo').toString(), isDone: true },
+				serverSeq: 1,
+				origin: undefined,
+			});
+			agentHostService.fireAction({
+				action: { type: ActionType.SessionIsReadChanged, session: AgentSession.uri('copilot', 'sess-echo').toString(), isRead: false },
+				serverSeq: 2,
+				origin: undefined,
+			});
+
+			assert.strictEqual(controller.items[0].archived, true);
+			assert.strictEqual(controller.items[0].read, false);
 		});
 
 		test('handler works with any IAgentConnection, not just IAgentHostService', () => runWithFakedTimers({ useFakeTimers: true }, async () => {

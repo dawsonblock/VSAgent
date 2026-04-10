@@ -1212,7 +1212,7 @@ export class CopilotChatSessionsProvider extends Disposable implements ISessions
 	async archiveSession(sessionId: string): Promise<void> {
 		const agentSession = this._findAgentSession(sessionId);
 		if (agentSession) {
-			agentSession.setArchived(true);
+			this.agentSessionsService.setSessionArchived(agentSession, true);
 			return;
 		}
 
@@ -1229,7 +1229,7 @@ export class CopilotChatSessionsProvider extends Disposable implements ISessions
 	async unarchiveSession(sessionId: string): Promise<void> {
 		const agentSession = this._findAgentSession(sessionId);
 		if (agentSession) {
-			agentSession.setArchived(false);
+			this.agentSessionsService.setSessionArchived(agentSession, false);
 			return;
 		}
 
@@ -1333,7 +1333,7 @@ export class CopilotChatSessionsProvider extends Disposable implements ISessions
 	setRead(sessionId: string, read: boolean): void {
 		const agentSession = this._findAgentSession(sessionId);
 		if (agentSession) {
-			agentSession.setRead(read);
+			this.agentSessionsService.setSessionRead(agentSession, read);
 		}
 	}
 
