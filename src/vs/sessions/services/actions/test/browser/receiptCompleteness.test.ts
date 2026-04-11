@@ -6,9 +6,9 @@
 import assert from 'assert';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { SessionActionReceiptStatus } from '../../common/sessionActionReceipts.js';
+import { SessionActionReceipt, SessionActionReceiptStatus } from '../../common/sessionActionReceipts.js';
 import { SessionActionDenialReason, SessionActionKind, SessionHostKind, SessionActionStatus } from '../../common/sessionActionTypes.js';
-import { createActionForKind, createSessionActionHarness, testFileResource, testProviderId, testRepositoryRoot, testSessionId } from './sessionActionTestUtils.js';
+import { SessionActionHarnessOptions, createActionForKind, createSessionActionHarness, testFileResource, testProviderId, testRepositoryRoot, testSessionId, testWorktreeRoot } from './sessionActionTestUtils.js';
 
 suite('ReceiptCompleteness', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite() as Pick<DisposableStore, 'add'>;
@@ -60,6 +60,102 @@ suite('ReceiptCompleteness', () => {
 		assert.strictEqual(receipt.status, SessionActionReceiptStatus.Executed);
 		assert.deepStrictEqual(receipt.filesTouched.map(file => file.toString()), [testFileResource.toString()]);
 		assert.strictEqual(receipt.executionSummary, 'Applied file updates.');
+	});
+
+	test('non-command receipts preserve action-specific request facts and authoritative execution context', async () => {
+		interface NonCommandCase {
+			readonly kind: SessionActionKind;
+			readonly options?: Pick<SessionActionHarnessOptions, 'policyOverrides' | 'providerCapabilityOverrides'>;
+			readonly expectedStatus: SessionActionStatus;
+			readonly expectedReceiptStatus: SessionActionReceiptStatus;
+			readonly assertReceipt: (receipt: SessionActionReceipt) => void;
+		}
+
+		const cases: readonly NonCommandCase[] = [
+			{
+				kind: SessionActionKind.SearchWorkspace,
+				expectedStatus: SessionActionStatus.Executed,
+				expectedReceiptStatus: SessionActionReceiptStatus.Executed,
+				assertReceipt: receipt => {
+					assert.strictEqual(receipt.query, 'needle');
+					assert.strictEqual(receipt.maxResults, 5);
+					assert.strictEqual(receipt.executionSummary, 'Found 1 workspace search match.');
+				},
+			},
+			{
+				kind: SessionActionKind.ReadFile,
+				expectedStatus: SessionActionStatus.Executed,
+				expectedReceiptStatus: SessionActionReceiptStatus.Executed,
+				assertReceipt: receipt => {
+					assert.strictEqual(receipt.resource?.toString(), testFileResource.toString());
+					assert.strictEqual(receipt.startLine, undefined);
+					assert.strictEqual(receipt.endLine, undefined);
+				},
+			},
+			{
+				kind: SessionActionKind.WritePatch,
+				options: { policyOverrides: { allowWorkspaceWrites: true } },
+				expectedStatus: SessionActionStatus.Executed,
+				expectedReceiptStatus: SessionActionReceiptStatus.Executed,
+				assertReceipt: receipt => {
+					assert.deepStrictEqual(receipt.filesTouched.map(file => file.toString()), [testFileResource.toString()]);
+				},
+			},
+			{
+				kind: SessionActionKind.GitStatus,
+				options: { policyOverrides: { allowGitMutation: true } },
+				expectedStatus: SessionActionStatus.Executed,
+				expectedReceiptStatus: SessionActionReceiptStatus.Executed,
+				assertReceipt: receipt => {
+					assert.strictEqual(receipt.repositoryPath?.toString(), testRepositoryRoot.toString());
+					assert.ok(receipt.stdout?.includes('"head": "main"'));
+				},
+			},
+			{
+				kind: SessionActionKind.GitDiff,
+				options: { policyOverrides: { allowGitMutation: true } },
+				expectedStatus: SessionActionStatus.Executed,
+				expectedReceiptStatus: SessionActionReceiptStatus.Executed,
+				assertReceipt: receipt => {
+					assert.strictEqual(receipt.repositoryPath?.toString(), testRepositoryRoot.toString());
+					assert.strictEqual(receipt.ref, 'HEAD~1');
+				},
+			},
+			{
+				kind: SessionActionKind.OpenWorktree,
+				options: {
+					policyOverrides: { allowWorktreeMutation: true },
+					providerCapabilityOverrides: { canOpenWorktrees: true, requiresApprovalForWorktreeActions: false },
+				},
+				expectedStatus: SessionActionStatus.Failed,
+				expectedReceiptStatus: SessionActionReceiptStatus.Failed,
+				assertReceipt: receipt => {
+					assert.strictEqual(receipt.denialReason, SessionActionDenialReason.UnsupportedAction);
+					assert.strictEqual(receipt.repositoryPath?.toString(), testRepositoryRoot.toString());
+					assert.strictEqual(receipt.worktreePath?.toString(), testWorktreeRoot.toString());
+					assert.strictEqual(receipt.branch, 'feature');
+				},
+			},
+		];
+
+		for (const testCase of cases) {
+			const harness = createSessionActionHarness(disposables, testCase.options);
+			const result = await harness.service.submitAction(testSessionId, testProviderId, createActionForKind(testCase.kind));
+			const receipt = harness.service.getReceiptsForSession(testSessionId)[0];
+
+			assert.strictEqual(result.status, testCase.expectedStatus, `Unexpected action result for ${testCase.kind}.`);
+			assert.strictEqual(receipt.status, testCase.expectedReceiptStatus, `Unexpected receipt status for ${testCase.kind}.`);
+			assert.strictEqual(receipt.sessionId, testSessionId);
+			assert.strictEqual(receipt.providerId, testProviderId);
+			assert.strictEqual(receipt.hostKind, SessionHostKind.Local);
+			assert.strictEqual(receipt.hostTarget.providerId, testProviderId);
+			assert.ok(receipt.requestedScope.workspaceRoot);
+			assert.ok(receipt.approvedScope.projectRoot);
+			assert.strictEqual(receipt.approvalSummary, 'Approved.');
+			assert.ok(receipt.requestedAt <= receipt.decidedAt);
+			assert.ok((receipt.completedAt ?? receipt.decidedAt) >= receipt.decidedAt);
+			testCase.assertReceipt(receipt);
+		}
 	});
 
 	test('denied receipts capture denial reasons, errors, and completion timestamps', async () => {

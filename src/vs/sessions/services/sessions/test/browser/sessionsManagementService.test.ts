@@ -201,6 +201,8 @@ suite('SessionsManagementService', () => {
 					kind: SessionActionKind.RunCommand,
 					status: SessionActionStatus.Executed,
 					advisorySources: [],
+					command: (action as Extract<SessionAction, { kind: SessionActionKind.RunCommand }>).command,
+					args: ((action as Extract<SessionAction, { kind: SessionActionKind.RunCommand }>).args ?? []).map(String),
 					commandLine: (action as Extract<SessionAction, { kind: SessionActionKind.RunCommand }>).command,
 				};
 			},
@@ -259,6 +261,8 @@ suite('SessionsManagementService', () => {
 					kind: SessionActionKind.RunCommand,
 					status: SessionActionStatus.Executed,
 					advisorySources: [],
+					command: (action as Extract<SessionAction, { kind: SessionActionKind.RunCommand }>).command,
+					args: ((action as Extract<SessionAction, { kind: SessionActionKind.RunCommand }>).args ?? []).map(String),
 					commandLine: (action as Extract<SessionAction, { kind: SessionActionKind.RunCommand }>).command,
 				};
 			},
@@ -291,6 +295,8 @@ suite('SessionsManagementService', () => {
 					kind: SessionActionKind.RunCommand,
 					status: SessionActionStatus.Executed,
 					advisorySources: [],
+					command: (action as Extract<SessionAction, { kind: SessionActionKind.RunCommand }>).command,
+					args: ((action as Extract<SessionAction, { kind: SessionActionKind.RunCommand }>).args ?? []).map(String),
 					commandLine: (action as Extract<SessionAction, { kind: SessionActionKind.RunCommand }>).command,
 				};
 			},

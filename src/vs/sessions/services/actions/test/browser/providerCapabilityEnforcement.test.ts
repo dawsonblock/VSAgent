@@ -14,6 +14,7 @@ suite('ProviderCapabilityEnforcement', () => {
 
 	test('denies typed actions when the required provider capability is missing', async () => {
 		const cases = [
+			{ kind: SessionActionKind.SearchWorkspace, capability: { canReadWorkspace: false }, policy: {} },
 			{ kind: SessionActionKind.ReadFile, capability: { canReadWorkspace: false }, policy: {} },
 			{ kind: SessionActionKind.WritePatch, capability: { canWriteWorkspace: false }, policy: { allowWorkspaceWrites: true } },
 			{ kind: SessionActionKind.RunCommand, capability: { canRunCommands: false }, policy: { allowCommands: true } },
@@ -37,6 +38,7 @@ suite('ProviderCapabilityEnforcement', () => {
 
 	test('allows typed actions when the provider capability and policy both permit them', async () => {
 		const cases = [
+			{ kind: SessionActionKind.SearchWorkspace, capability: {}, policy: {} },
 			{ kind: SessionActionKind.ReadFile, capability: {}, policy: {} },
 			{ kind: SessionActionKind.WritePatch, capability: {}, policy: { allowWorkspaceWrites: true } },
 			{ kind: SessionActionKind.RunCommand, capability: {}, policy: { allowCommands: true } },

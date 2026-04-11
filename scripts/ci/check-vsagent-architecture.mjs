@@ -113,6 +113,31 @@ function assertMethodContainsAll(relativePath, signature, requiredSnippets, cont
 	}
 }
 
+function assertFileContainsAll(relativePath, requiredSnippets, contextLabel) {
+	const source = readText(relativePath);
+	for (const snippet of requiredSnippets) {
+		if (!source.includes(snippet)) {
+			failures.push(`${relativePath}: ${contextLabel} is missing required coverage for '${snippet}'.`);
+		}
+	}
+}
+
+function extractConstEnumMembers(relativePath, enumName) {
+	const source = readText(relativePath);
+	const match = source.match(new RegExp(`export\\s+const\\s+enum\\s+${enumName}\\s*\\{([\\s\\S]*?)\\}`));
+	if (!match) {
+		failures.push(`${relativePath}: could not locate const enum '${enumName}'.`);
+		return [];
+	}
+
+	const members = [...match[1].matchAll(/^\s*([A-Za-z0-9_]+)\s*=\s*'[^']+'/gm)].map(result => result[1]);
+	if (members.length === 0) {
+		failures.push(`${relativePath}: const enum '${enumName}' does not declare any members.`);
+	}
+
+	return members;
+	}
+
 const actionBrowserFiles = walk('src/vs/sessions/services/actions/browser')
 	.filter(file => /\.(ts|mts|js)$/.test(file))
 	.filter(file => !file.endsWith('sessionActionExecutorBridge.ts'));
@@ -160,18 +185,29 @@ assertMethodDoesNotContain(copilotProviderPath, 'async deleteChat(', directRenam
 assertMethodDoesNotContain(copilotProviderPath, 'async renameChat(', directRenameDeletePatterns, 'public Copilot provider mutation');
 
 const executorPath = 'src/vs/sessions/services/actions/browser/sessionActionExecutorBridge.ts';
-const requiredExecutorKinds = [
-	'SessionActionKind.SearchWorkspace',
-	'SessionActionKind.ReadFile',
-	'SessionActionKind.WritePatch',
-	'SessionActionKind.RunCommand',
-	'SessionActionKind.GitStatus',
-	'SessionActionKind.GitDiff',
-	'SessionActionKind.OpenWorktree',
-];
+const actionKindMembers = extractConstEnumMembers('src/vs/sessions/services/actions/common/sessionActionTypes.ts', 'SessionActionKind');
+const requiredExecutorKinds = actionKindMembers.map(member => `SessionActionKind.${member}`);
 
 assertMethodContainsAll(executorPath, 'supports(kind: SessionActionKind): boolean', requiredExecutorKinds, 'executor supports');
 assertMethodContainsAll(executorPath, 'async execute(action: SessionAction, scope: NormalizedSessionActionScope): Promise<SessionActionResult>', requiredExecutorKinds, 'executor dispatch');
+
+for (const proofFile of [
+	'src/vs/sessions/services/actions/test/browser/sessionActionE2E.test.ts',
+	'src/vs/sessions/services/actions/test/browser/receiptCompleteness.test.ts',
+	'src/vs/sessions/services/actions/test/browser/providerCapabilityEnforcement.test.ts',
+	'src/vs/sessions/contrib/logs/test/browser/sessionActionLogView.test.ts',
+]) {
+	assertFileContainsAll(proofFile, requiredExecutorKinds, 'proof coverage');
+}
+
+assertFileContainsAll(
+	'src/vs/sessions/services/actions/test/browser/confirmationResolverIntegration.test.ts',
+	[
+		'SessionActionKind.RunCommand',
+		'SessionActionKind.WritePatch',
+	],
+	'confirmation proof coverage'
+);
 
 if (failures.length > 0) {
 	console.error('VSAgent architecture guard failed:\n');

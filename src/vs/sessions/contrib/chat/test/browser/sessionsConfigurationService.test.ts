@@ -146,6 +146,8 @@ suite('SessionsConfigurationService', () => {
 					kind: SessionActionKind.RunCommand,
 					status: SessionActionStatus.Executed,
 					advisorySources: [],
+					command: '_sessions.runScript',
+					args: [],
 					commandLine: '',
 				};
 			}

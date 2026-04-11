@@ -337,6 +337,14 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 			hostTarget: options.executionContext.hostTarget,
 			actionId: options.action.id ?? executionResult.actionId,
 			actionKind: options.action.kind,
+			query: this._getQuery(options.action),
+			includePattern: this._getIncludePattern(options.action),
+			isRegexp: this._getIsRegexp(options.action),
+			maxResults: this._getMaxResults(options.action),
+			resource: this._getResource(options.action, executionResult),
+			startLine: this._getStartLine(options.action),
+			endLine: this._getEndLine(options.action),
+			ref: this._getRef(options.action),
 			requestedScope: options.requestedScope,
 			approvedScope: options.approvedScope,
 			requestedAt: options.requestedAt,
@@ -445,6 +453,42 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 		}
 
 		return fallback;
+	}
+
+	private _getQuery(action: SessionAction): string | undefined {
+		return action.kind === SessionActionKind.SearchWorkspace ? action.query : undefined;
+	}
+
+	private _getIncludePattern(action: SessionAction): string | undefined {
+		return action.kind === SessionActionKind.SearchWorkspace ? action.includePattern : undefined;
+	}
+
+	private _getIsRegexp(action: SessionAction): boolean | undefined {
+		return action.kind === SessionActionKind.SearchWorkspace ? action.isRegexp : undefined;
+	}
+
+	private _getMaxResults(action: SessionAction): number | undefined {
+		return action.kind === SessionActionKind.SearchWorkspace ? action.maxResults : undefined;
+	}
+
+	private _getResource(action: SessionAction, result: SessionActionResult): URI | undefined {
+		if (result.kind === SessionActionKind.ReadFile) {
+			return result.resource;
+		}
+
+		return action.kind === SessionActionKind.ReadFile ? action.resource : undefined;
+	}
+
+	private _getStartLine(action: SessionAction): number | undefined {
+		return action.kind === SessionActionKind.ReadFile ? action.startLine : undefined;
+	}
+
+	private _getEndLine(action: SessionAction): number | undefined {
+		return action.kind === SessionActionKind.ReadFile ? action.endLine : undefined;
+	}
+
+	private _getRef(action: SessionAction): string | undefined {
+		return action.kind === SessionActionKind.GitDiff ? action.ref : undefined;
 	}
 
 	private _getStdout(result: SessionActionResult): string | undefined {
