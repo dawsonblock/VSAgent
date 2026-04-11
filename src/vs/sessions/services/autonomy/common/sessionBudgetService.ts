@@ -5,8 +5,8 @@
 
 import { URI } from '../../../../base/common/uri.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
-import { SessionActionResult, SessionActionStatus } from '../../actions/common/sessionActionTypes.js';
-import { SessionPlanBudget, SessionPlanStep, SessionPlanStepKind } from '../../planning/common/sessionPlanTypes.js';
+import { SessionActionResult } from '../../actions/common/sessionActionTypes.js';
+import { SessionPlanBudget, SessionPlanStep } from '../../planning/common/sessionPlanTypes.js';
 
 export const enum SessionBudgetExhaustionReason {
 	MaxSteps = 'maxSteps',

@@ -22,10 +22,14 @@ import { IChatWidgetService } from '../../../../../workbench/contrib/chat/browse
 import { TestStorageService } from '../../../../../workbench/test/common/workbenchTestServices.js';
 import { ISessionActionService } from '../../../../services/actions/common/sessionActionService.js';
 import { SessionAction, SessionActionKind, SessionActionStatus, SessionHostKind } from '../../../../services/actions/common/sessionActionTypes.js';
+import { ISessionAutonomousExecutionService } from '../../../../services/autonomy/common/sessionAutonomousExecutionService.js';
+import { AutonomyContinuationDecision, AutonomyStopReason, SessionAutonomyMode } from '../../../../services/autonomy/common/sessionAutonomyTypes.js';
+import { ISessionPlanningService } from '../../../../services/planning/common/sessionPlanningService.js';
+import { getDefaultSessionPlanBudget, SessionPlanStatus, SessionPlanStepKind } from '../../../../services/planning/common/sessionPlanTypes.js';
 import { ISessionsProvidersService } from '../../browser/sessionsProvidersService.js';
 import { SessionsManagementService } from '../../browser/sessionsManagementService.js';
 import { SessionStatus, ISession } from '../../common/session.js';
-import { ISessionsProvider } from '../../common/sessionsProvider.js';
+import { ISendRequestOptions, ISessionsProvider } from '../../common/sessionsProvider.js';
 
 interface IProviderCalls {
 	archiveSessions: string[];
@@ -34,6 +38,7 @@ interface IProviderCalls {
 	deletedChats: Array<{ sessionId: string; chatUri: URI }>;
 	renameChats: Array<{ sessionId: string; chatUri: URI; title: string }>;
 	readStates: Array<{ sessionId: string; read: boolean }>;
+	sendRequests: ISendRequestOptions[];
 }
 
 function createProviderCalls(): IProviderCalls {
@@ -44,6 +49,7 @@ function createProviderCalls(): IProviderCalls {
 		deletedChats: [],
 		renameChats: [],
 		readStates: [],
+		sendRequests: [],
 	};
 }
 
@@ -132,7 +138,10 @@ function createProvider(session: ISession, calls: IProviderCalls): ISessionsProv
 		setRead: (sessionId: string, read: boolean) => {
 			calls.readStates.push({ sessionId, read });
 		},
-		sendAndCreateChat: async () => session,
+		sendAndCreateChat: async (_sessionId: string, options: ISendRequestOptions) => {
+			calls.sendRequests.push(options);
+			return session;
+		},
 		capabilities: {
 			multipleChatsPerSession: false,
 			hostKind: SessionHostKind.Local,
@@ -158,7 +167,7 @@ suite('SessionsManagementService', () => {
 	teardown(() => disposables.clear());
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	function createInstantiationService(provider: ISessionsProvider, sessionActionService: Partial<ISessionActionService>): TestInstantiationService {
+	function createInstantiationService(provider: ISessionsProvider, sessionActionService: Partial<ISessionActionService>, runtimeServices?: { planning?: Partial<ISessionPlanningService>; autonomousExecution?: Partial<ISessionAutonomousExecutionService> }): TestInstantiationService {
 		const instantiationService = disposables.add(new TestInstantiationService());
 		instantiationService.stub(IStorageService, disposables.add(new TestStorageService()));
 		instantiationService.stub(ILogService, new NullLogService());
@@ -182,6 +191,18 @@ suite('SessionsManagementService', () => {
 			},
 			getReceiptsForSession: () => [],
 			...sessionActionService,
+		});
+		instantiationService.stub(ISessionPlanningService, {
+			createPlan: async () => {
+				throw new Error('createPlan not stubbed');
+			},
+			...runtimeServices?.planning,
+		});
+		instantiationService.stub(ISessionAutonomousExecutionService, {
+			executePlan: async () => {
+				throw new Error('executePlan not stubbed');
+			},
+			...runtimeServices?.autonomousExecution,
 		});
 		return instantiationService;
 	}
@@ -349,5 +370,81 @@ suite('SessionsManagementService', () => {
 			chatUri: chatUri.toString(),
 			title: 'Renamed Chat',
 		}]);
+	});
+
+	test('sendAndCreateChat routes advisory autonomy through runtime services and strips metadata before forwarding to providers', async () => {
+		const session = createSession();
+		const calls = createProviderCalls();
+		const provider = createProvider(session, calls);
+		let planningRequest: Parameters<ISessionPlanningService['createPlan']>[0] | undefined;
+		let autonomousExecutionRequest: Parameters<ISessionAutonomousExecutionService['executePlan']>[0] | undefined;
+
+		const plan = {
+			id: 'plan-1',
+			sessionId: session.sessionId,
+			providerId: session.providerId,
+			intent: 'Repair the repo',
+			hostTarget: {
+				kind: SessionHostKind.Local,
+				providerId: session.providerId,
+			},
+			steps: [],
+			status: SessionPlanStatus.Draft,
+			budget: getDefaultSessionPlanBudget(),
+			createdAt: 1,
+			updatedAt: 1,
+		};
+
+		const instantiationService = createInstantiationService(provider, {}, {
+			planning: {
+				createPlan: async request => {
+					planningRequest = request;
+					return plan;
+				},
+			},
+			autonomousExecution: {
+				executePlan: async request => {
+					autonomousExecutionRequest = request;
+					return {
+						planId: plan.id,
+						sessionId: session.sessionId,
+						providerId: session.providerId,
+						status: SessionPlanStatus.Completed,
+						decision: AutonomyContinuationDecision.Stop,
+						stopReason: AutonomyStopReason.Completed,
+						stepResults: [],
+						budgetState: {
+							budget: getDefaultSessionPlanBudget(),
+							startedAt: 1,
+							executedSteps: 0,
+							executedCommands: 0,
+							fileWrites: 0,
+							modifiedFiles: [],
+							failures: 0,
+							attemptsByStep: {},
+							elapsedMs: 0,
+						},
+						issues: [],
+						reasons: [],
+					};
+				},
+			},
+		});
+
+		const service = disposables.add(instantiationService.createInstance(SessionsManagementService));
+		await service.sendAndCreateChat(session, {
+			query: 'Repair the repo',
+			advisoryAutonomy: {
+				mode: SessionAutonomyMode.RepoRepair,
+				steps: [{ kind: SessionPlanStepKind.Review, title: 'Review the diff' }],
+			},
+		});
+
+		assert.ok(planningRequest);
+		assert.strictEqual(planningRequest.intent, 'Repair the repo');
+		assert.strictEqual(planningRequest.sessionId, session.sessionId);
+		assert.ok(autonomousExecutionRequest);
+		assert.strictEqual(autonomousExecutionRequest.plan, plan);
+		assert.deepStrictEqual(calls.sendRequests, [{ query: 'Repair the repo', attachedContext: undefined }]);
 	});
 });
