@@ -364,6 +364,7 @@ function appendActionSpecificDetails(receipt: SessionActionReceipt, pushDetail: 
 			pushDetail(localize('sessionActionLog.detail.arguments', "Arguments"), receipt.args?.join('\n'));
 			pushDetail(localize('sessionActionLog.detail.stdout', "Stdout"), receipt.stdout);
 			pushDetail(localize('sessionActionLog.detail.stderr', "Stderr"), receipt.stderr);
+			pushDetail(localize('sessionActionLog.detail.exitCode', "Exit Code"), typeof receipt.exitCode === 'number' ? String(receipt.exitCode) : undefined);
 			break;
 		case SessionActionKind.GitStatus:
 			pushDetail(localize('sessionActionLog.detail.repository', "Repository"), receipt.repositoryPath?.toString());
