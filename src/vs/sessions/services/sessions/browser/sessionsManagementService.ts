@@ -14,9 +14,11 @@ import { IStorageService, StorageScope, StorageTarget } from '../../../../platfo
 import { ChatViewPaneTarget, IChatWidgetService } from '../../../../workbench/contrib/chat/browser/chat.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { ActiveSessionProviderIdContext, ActiveSessionTypeContext, IsActiveSessionBackgroundProviderContext, IsNewChatSessionContext } from '../../../common/contextkeys.js';
+import { ISessionAutonomousExecutionService } from '../../autonomy/common/sessionAutonomousExecutionService.js';
 import { ISessionActionService } from '../../actions/common/sessionActionService.js';
 import { SessionActionReceipt } from '../../actions/common/sessionActionReceipts.js';
-import { SessionAction, SessionActionKind, SessionActionRequestSource, SessionActionResult, SessionActionStatus, SessionCommandLaunchKind } from '../../actions/common/sessionActionTypes.js';
+import { SessionAction, SessionActionKind, SessionActionRequestSource, SessionActionResult, SessionActionStatus, SessionCommandLaunchKind, SessionHostKind } from '../../actions/common/sessionActionTypes.js';
+import { ISessionPlanningService } from '../../planning/common/sessionPlanningService.js';
 import { ActiveSessionSupportsMultiChatContext, IActiveSession, ISessionsChangeEvent, ISessionsManagementService } from '../common/sessionsManagement.js';
 import { ISessionsProvidersChangeEvent, ISessionsProvidersService } from './sessionsProvidersService.js';
 import { ISendRequestOptions, ISessionChangeEvent, ISessionsProvider } from '../common/sessionsProvider.js';
@@ -89,6 +91,8 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 		@ILogService private readonly logService: ILogService,
 		@IContextKeyService contextKeyService: IContextKeyService,
 		@ISessionsProvidersService private readonly sessionsProvidersService: ISessionsProvidersService,
+		@ISessionPlanningService private readonly _sessionPlanningService: ISessionPlanningService,
+		@ISessionAutonomousExecutionService private readonly _sessionAutonomousExecutionService: ISessionAutonomousExecutionService,
 		@ISessionActionService private readonly _sessionActionService: ISessionActionService,
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@IChatWidgetService private readonly chatWidgetService: IChatWidgetService,
@@ -343,7 +347,11 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 			if (!provider) {
 				throw new Error(`Sessions provider '${session.providerId}' not found`);
 			}
-			const updatedSession = await provider.sendAndCreateChat(session.sessionId, options);
+			if (options.advisoryAutonomy) {
+				await this._runAdvisoryAutonomy(session, options);
+			}
+
+			const updatedSession = await provider.sendAndCreateChat(session.sessionId, this._toProviderSendOptions(options));
 			if (updatedSession.sessionId !== session.sessionId && this._activeSession.get()?.sessionId === session.sessionId) {
 				this.logService.info(`[SessionsManagement] sendAndCreateChat: active session replaced: ${session.sessionId} -> ${updatedSession.sessionId}`);
 				this.setActiveSession(updatedSession);
@@ -435,6 +443,54 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 
 	private _getProvider(session: ISession): ISessionsProvider | undefined {
 		return this.sessionsProvidersService.getProviders().find(p => p.id === session.providerId);
+	}
+
+	private async _runAdvisoryAutonomy(session: ISession, options: ISendRequestOptions): Promise<void> {
+		const advisoryAutonomy = options.advisoryAutonomy;
+		if (!advisoryAutonomy) {
+			return;
+		}
+
+		try {
+			const plan = await this._sessionPlanningService.createPlan({
+				sessionId: session.sessionId,
+				providerId: session.providerId,
+				intent: options.query,
+				summary: advisoryAutonomy.summary,
+				hostTarget: this._createHostTarget(session),
+				steps: advisoryAutonomy.steps,
+				budget: advisoryAutonomy.budget,
+			});
+
+			const result = await this._sessionAutonomousExecutionService.executePlan({
+				session,
+				plan,
+				mode: advisoryAutonomy.mode,
+				requestedPermissionMode: advisoryAutonomy.requestedPermissionMode,
+			});
+
+			if (result.status !== 'completed') {
+				this.logService.info(`[SessionsManagement] Advisory autonomy run for session ${session.sessionId} stopped with status '${result.status}'.`);
+			}
+		} catch (error) {
+			this.logService.warn('[SessionsManagement] Advisory autonomy execution failed before provider send; continuing with provider request.', error);
+		}
+	}
+
+	private _createHostTarget(session: ISession) {
+		const providerCapabilities = this.sessionsProvidersService.getProviderCapabilities(session.providerId, session.sessionId);
+		return {
+			kind: providerCapabilities?.hostKind ?? SessionHostKind.Unknown,
+			providerId: session.providerId,
+			authority: this.sessionsProvidersService.getProviderMetadata(session.providerId, session.sessionId)?.remoteAddress,
+		};
+	}
+
+	private _toProviderSendOptions(options: ISendRequestOptions): ISendRequestOptions {
+		return {
+			query: options.query,
+			attachedContext: options.attachedContext,
+		};
 	}
 
 	async archiveSession(session: ISession): Promise<void> {

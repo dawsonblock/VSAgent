@@ -10,6 +10,8 @@ import { URI } from '../../../../base/common/uri.js';
 import { RemoteAgentHostConnectionStatus } from '../../../../platform/agentHost/common/remoteAgentHostService.js';
 import { IChatRequestVariableEntry } from '../../../../workbench/contrib/chat/common/attachments/chatVariableEntries.js';
 import { SessionActionDenialReason, SessionActionKind, SessionHostKind } from '../../actions/common/sessionActionTypes.js';
+import { SessionAutonomyMode } from '../../autonomy/common/sessionAutonomyTypes.js';
+import { SessionPlanBudget, SessionPlanStepDraft } from '../../planning/common/sessionPlanTypes.js';
 import { ISession, ISessionType, ISessionWorkspace, ISessionWorkspaceBrowseAction } from './session.js';
 
 export interface ISessionProviderActionCapabilityDenial {
@@ -66,11 +68,29 @@ export interface ISessionChangeEvent {
 /**
  * Options for sending a request to a session.
  */
+export interface IAdvisorySessionAutonomyOptions {
+	/** Runtime autonomy mode to apply when evaluating the advisory plan. */
+	readonly mode: SessionAutonomyMode;
+	/** Optional summary preserved on the derived runtime plan. */
+	readonly summary?: string;
+	/** Advisory step drafts proposed by the caller. */
+	readonly steps: readonly SessionPlanStepDraft[];
+	/** Optional plan budget override. */
+	readonly budget?: Partial<SessionPlanBudget>;
+	/** Optional permission mode forwarded to runtime validation. */
+	readonly requestedPermissionMode?: string;
+}
+
 export interface ISendRequestOptions {
 	/** The query text to send. */
 	readonly query: string;
 	/** Optional attached context entries. */
 	readonly attachedContext?: IChatRequestVariableEntry[];
+	/**
+	 * Optional runtime-owned autonomy metadata. This is consumed by Sessions
+	 * management and is not forwarded to providers.
+	 */
+	readonly advisoryAutonomy?: IAdvisorySessionAutonomyOptions;
 }
 
 /**
