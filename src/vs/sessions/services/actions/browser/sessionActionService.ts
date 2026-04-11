@@ -341,6 +341,7 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 			includePattern: this._getIncludePattern(options.action),
 			isRegexp: this._getIsRegexp(options.action),
 			maxResults: this._getMaxResults(options.action),
+			resultCount: this._getResultCount(executionResult),
 			resource: this._getResource(options.action, executionResult),
 			startLine: this._getStartLine(options.action),
 			endLine: this._getEndLine(options.action),
@@ -469,6 +470,12 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 
 	private _getMaxResults(action: SessionAction): number | undefined {
 		return action.kind === SessionActionKind.SearchWorkspace ? action.maxResults : undefined;
+	}
+
+	private _getResultCount(result: SessionActionResult): number | undefined {
+		return result.kind === SessionActionKind.SearchWorkspace
+			? result.resultCount ?? result.matches?.length
+			: undefined;
 	}
 
 	private _getResource(action: SessionAction, result: SessionActionResult): URI | undefined {

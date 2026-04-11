@@ -257,6 +257,7 @@ function createDefaultExecutorResult(action: SessionAction): SessionActionResult
 				kind: action.kind,
 				status: SessionActionStatus.Executed,
 				advisorySources,
+				resultCount: 1,
 				matches: [{ resource: testFileResource, lineNumber: 1, preview: 'needle' }],
 				summary: 'Found 1 workspace search match.',
 			};

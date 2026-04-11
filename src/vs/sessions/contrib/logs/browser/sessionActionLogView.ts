@@ -348,6 +348,7 @@ function appendActionSpecificDetails(receipt: SessionActionReceipt, pushDetail: 
 			pushDetail(localize('sessionActionLog.detail.includePattern', "Include Pattern"), receipt.includePattern);
 			pushDetail(localize('sessionActionLog.detail.isRegexp', "Regular Expression"), formatBooleanDetail(receipt.isRegexp));
 			pushDetail(localize('sessionActionLog.detail.maxResults', "Max Results"), typeof receipt.maxResults === 'number' ? String(receipt.maxResults) : undefined);
+			pushDetail(localize('sessionActionLog.detail.resultCount', "Result Count"), typeof receipt.resultCount === 'number' ? String(receipt.resultCount) : undefined);
 			break;
 		case SessionActionKind.ReadFile:
 			pushDetail(localize('sessionActionLog.detail.resource', "Resource"), receipt.resource?.toString());

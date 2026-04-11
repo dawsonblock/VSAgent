@@ -184,6 +184,7 @@ interface SessionActionResultBase {
 
 export interface SearchWorkspaceActionResult extends SessionActionResultBase {
 	readonly kind: SessionActionKind.SearchWorkspace;
+	readonly resultCount?: number;
 	readonly matches?: readonly {
 		readonly resource: URI;
 		readonly lineNumber?: number;

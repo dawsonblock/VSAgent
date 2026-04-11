@@ -136,7 +136,7 @@ function extractConstEnumMembers(relativePath, enumName) {
 	}
 
 	return members;
-	}
+}
 
 const actionBrowserFiles = walk('src/vs/sessions/services/actions/browser')
 	.filter(file => /\.(ts|mts|js)$/.test(file))
@@ -194,11 +194,39 @@ assertMethodContainsAll(executorPath, 'async execute(action: SessionAction, scop
 for (const proofFile of [
 	'src/vs/sessions/services/actions/test/browser/sessionActionE2E.test.ts',
 	'src/vs/sessions/services/actions/test/browser/receiptCompleteness.test.ts',
+	'src/vs/sessions/services/actions/test/browser/sessionActionReceiptParity.test.ts',
 	'src/vs/sessions/services/actions/test/browser/providerCapabilityEnforcement.test.ts',
 	'src/vs/sessions/contrib/logs/test/browser/sessionActionLogView.test.ts',
+	'src/vs/sessions/contrib/logs/test/browser/sessionActionLogParity.test.ts',
 ]) {
 	assertFileContainsAll(proofFile, requiredExecutorKinds, 'proof coverage');
 }
+
+assertFileContainsAll(
+	'src/vs/sessions/services/actions/common/sessionActionReceipts.ts',
+	[
+		'readonly query?: string;',
+		'readonly resultCount?: number;',
+		'readonly resource?: URI;',
+		'readonly filesTouched: readonly URI[];',
+		'readonly stdout?: string;',
+		'readonly worktreePath?: URI;',
+	],
+	'receipt parity fields'
+);
+
+assertFileContainsAll(
+	'src/vs/sessions/contrib/logs/browser/sessionActionLogView.ts',
+	[
+		'sessionActionLog.detail.query',
+		'sessionActionLog.detail.resultCount',
+		'sessionActionLog.detail.resource',
+		'sessionActionLog.detail.filesTouched',
+		'sessionActionLog.detail.stdout',
+		'sessionActionLog.detail.worktree',
+	],
+	'log detail parity'
+);
 
 assertFileContainsAll(
 	'src/vs/sessions/services/actions/test/browser/confirmationResolverIntegration.test.ts',

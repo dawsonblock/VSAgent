@@ -54,6 +54,7 @@ export interface SessionActionReceipt {
 	readonly includePattern?: string;
 	readonly isRegexp?: boolean;
 	readonly maxResults?: number;
+	readonly resultCount?: number;
 	readonly resource?: URI;
 	readonly startLine?: number;
 	readonly endLine?: number;

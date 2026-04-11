@@ -29,7 +29,8 @@ suite('SessionActionExecutorBridge', () => {
 
 	let fileService: FileService;
 	let commandCalls: Array<{ readonly command: string; readonly args: readonly unknown[] }>;
-	let commandResult: { ok: boolean; count?: number };
+	let commandResult: unknown;
+	let commandError: Error | undefined;
 	let searchResults: IFileMatch[];
 	let gitRepository: IGitRepository | undefined;
 	let bridge: SessionActionExecutorBridge;
@@ -73,6 +74,7 @@ suite('SessionActionExecutorBridge', () => {
 		disposables.add(fileService.registerProvider('file', disposables.add(new InMemoryFileSystemProvider())));
 		commandCalls = [];
 		commandResult = { ok: true };
+		commandError = undefined;
 		searchResults = [];
 		gitRepository = undefined;
 
@@ -82,6 +84,10 @@ suite('SessionActionExecutorBridge', () => {
 			onDidExecuteCommand: Event.None,
 			executeCommand: async <R = unknown>(command: string, ...args: unknown[]): Promise<R | undefined> => {
 				commandCalls.push({ command, args });
+				if (commandError) {
+					throw commandError;
+				}
+
 				return commandResult as R;
 			},
 		};
@@ -130,6 +136,7 @@ suite('SessionActionExecutorBridge', () => {
 
 		assert.strictEqual(result.status, SessionActionStatus.Executed);
 		assert.strictEqual(result.kind, SessionActionKind.SearchWorkspace);
+		assert.strictEqual(result.resultCount, 1);
 		assert.deepStrictEqual(result.matches, [{ resource: fileResource }]);
 	});
 
@@ -168,6 +175,37 @@ suite('SessionActionExecutorBridge', () => {
 		await assert.rejects(() => fileService.readFile(deleteResource));
 	});
 
+	test('writePatch returns a structured failure when a later file operation errors', async () => {
+		const originalWriteFile = fileService.writeFile.bind(fileService);
+		fileService.writeFile = async (resource, value, options) => {
+			if (resource.toString() === deleteResource.toString()) {
+				throw new Error('disk full');
+			}
+
+			return originalWriteFile(resource, value, options);
+		};
+
+		const result = await bridge.execute({
+			kind: SessionActionKind.WritePatch,
+			requestedBy: SessionActionRequestSource.User,
+			patch: 'patch',
+			files: [fileResource, deleteResource],
+			operations: [
+				{ resource: fileResource, contents: 'updated' },
+				{ resource: deleteResource, contents: 'second write' },
+			],
+		}, createScope());
+
+		assert.strictEqual(result.status, SessionActionStatus.Failed);
+		assert.strictEqual(result.kind, SessionActionKind.WritePatch);
+		assert.strictEqual(result.denialReason, SessionActionDenialReason.ExecutionFailed);
+		assert.ok(result.denialMessage?.includes('disk full'));
+		assert.deepStrictEqual(result.filesTouched, [fileResource]);
+		assert.strictEqual(result.applied, false);
+		assert.strictEqual((await fileService.readFile(fileResource)).value.toString(), 'updated');
+		await assert.rejects(() => fileService.readFile(deleteResource));
+	});
+
 	test('runCommand returns authoritative command metadata and output', async () => {
 		commandResult = { ok: true, count: 2 };
 
@@ -189,6 +227,25 @@ suite('SessionActionExecutorBridge', () => {
 		assert.ok(result.stdout?.includes('"ok": true'));
 		assert.strictEqual(result.stderr, '');
 		assert.deepStrictEqual(commandCalls, [{ command: 'workbench.action.test', args: ['alpha', 2] }]);
+	});
+
+	test('runCommand returns a structured execution failure when the command throws', async () => {
+		commandError = new Error('command exploded');
+
+		const result = await bridge.execute({
+			kind: SessionActionKind.RunCommand,
+			requestedBy: SessionActionRequestSource.User,
+			command: 'workbench.action.test',
+			args: ['alpha'],
+			cwd: repositoryRoot,
+			launchKind: SessionCommandLaunchKind.Command,
+		}, createScope());
+
+		assert.strictEqual(result.status, SessionActionStatus.Failed);
+		assert.strictEqual(result.kind, SessionActionKind.RunCommand);
+		assert.strictEqual(result.denialReason, SessionActionDenialReason.ExecutionFailed);
+		assert.strictEqual(result.stderr, 'command exploded');
+		assert.strictEqual(result.exitCode, 1);
 	});
 
 	test('runCommand fails closed for task-backed execution', async () => {

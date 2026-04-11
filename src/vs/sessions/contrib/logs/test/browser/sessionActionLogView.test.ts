@@ -30,6 +30,7 @@ suite('SessionActionLogView', () => {
 			includePattern: undefined,
 			isRegexp: undefined,
 			maxResults: undefined,
+			resultCount: undefined,
 			resource: undefined,
 			startLine: undefined,
 			endLine: undefined,
@@ -146,8 +147,8 @@ suite('SessionActionLogView', () => {
 		const cases: readonly ActionDetailCase[] = [
 			{
 				kind: SessionActionKind.SearchWorkspace,
-				overrides: { query: 'needle', includePattern: 'src/**', isRegexp: true, maxResults: 25 },
-				expectedLabels: ['Query', 'Include Pattern', 'Regular Expression', 'Max Results'],
+				overrides: { query: 'needle', includePattern: 'src/**', isRegexp: true, maxResults: 25, resultCount: 3 },
+				expectedLabels: ['Query', 'Include Pattern', 'Regular Expression', 'Max Results', 'Result Count'],
 				forbiddenLabels: ['Resource', 'Command', 'Arguments', 'Repository', 'Ref', 'Branch', 'Touched Files'],
 			},
 			{
@@ -164,20 +165,20 @@ suite('SessionActionLogView', () => {
 			},
 			{
 				kind: SessionActionKind.RunCommand,
-				overrides: {},
-				expectedLabels: ['Cwd', 'Command', 'Arguments', 'Stdout'],
+				overrides: { stderr: 'warning output' },
+				expectedLabels: ['Cwd', 'Command', 'Arguments', 'Stdout', 'Stderr'],
 				forbiddenLabels: ['Query', 'Resource', 'Repository', 'Ref', 'Branch', 'Touched Files'],
 			},
 			{
 				kind: SessionActionKind.GitStatus,
-				overrides: {},
-				expectedLabels: ['Repository', 'Stdout'],
+				overrides: { stderr: 'git warning' },
+				expectedLabels: ['Repository', 'Stdout', 'Stderr'],
 				forbiddenLabels: ['Query', 'Resource', 'Command', 'Arguments', 'Ref', 'Branch', 'Touched Files'],
 			},
 			{
 				kind: SessionActionKind.GitDiff,
-				overrides: { ref: 'HEAD~1' },
-				expectedLabels: ['Repository', 'Ref', 'Stdout'],
+				overrides: { ref: 'HEAD~1', stderr: 'git diff warning' },
+				expectedLabels: ['Repository', 'Ref', 'Stdout', 'Stderr'],
 				forbiddenLabels: ['Query', 'Resource', 'Command', 'Arguments', 'Branch', 'Touched Files'],
 			},
 			{
