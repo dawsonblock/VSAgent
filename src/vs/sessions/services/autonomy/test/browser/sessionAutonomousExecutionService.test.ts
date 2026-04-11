@@ -16,6 +16,7 @@ import { SessionActionKind, SessionActionRequestSource, SessionActionStatus, Ses
 import { createScope, createSessionActionHarness, SessionActionHarnessOptions } from '../../../actions/test/browser/sessionActionTestUtils.js';
 import { SessionCheckpointService } from '../../../checkpoints/browser/sessionCheckpointService.js';
 import { SessionEvaluationService } from '../../../evaluation/browser/sessionEvaluationService.js';
+import { SessionExecutionMemoryService } from '../../../memory/browser/sessionExecutionMemoryService.js';
 import { SessionPlanningService } from '../../../planning/browser/sessionPlanningService.js';
 import { SessionPlanValidatorService } from '../../../planning/browser/sessionPlanValidatorService.js';
 import { SessionPlanRiskClass, SessionPlanStatus, SessionPlanStepKind } from '../../../planning/common/sessionPlanTypes.js';
@@ -54,6 +55,7 @@ suite('SessionAutonomousExecutionService', () => {
 		const checkpointService = disposables.add(new SessionCheckpointService(harness.service));
 		const evaluationService = disposables.add(new SessionEvaluationService());
 		const autonomyPolicyService = disposables.add(new SessionAutonomyPolicyService());
+		const memoryService = new SessionExecutionMemoryService();
 		const executionService = disposables.add(new SessionAutonomousExecutionService(
 			harness.providersService,
 			policyService,
@@ -63,11 +65,13 @@ suite('SessionAutonomousExecutionService', () => {
 			checkpointService,
 			evaluationService,
 			harness.service,
+			memoryService,
 			new NullLogService(),
 		));
 
 		return {
 			harness,
+			memoryService,
 			planningService,
 			checkpointService,
 			executionService,
@@ -76,7 +80,7 @@ suite('SessionAutonomousExecutionService', () => {
 
 	test('executePlan routes executable steps through SessionActionService and checkpoints mutating steps', async () => {
 		const file = URI.file('/workspace/repo/src/app.ts');
-		const { harness, planningService, checkpointService, executionService } = createRuntime({
+		const { harness, memoryService, planningService, checkpointService, executionService } = createRuntime({
 			allowWorkspaceWrites: true,
 			allowCommands: true,
 			allowGitMutation: true,
@@ -128,6 +132,7 @@ suite('SessionAutonomousExecutionService', () => {
 		assert.strictEqual(harness.service.getReceiptsForSession(harness.session.sessionId).length, 2);
 		assert.strictEqual(checkpointService.getCheckpointsForSession(harness.session.sessionId).length, 1);
 		assert.strictEqual(result.stepResults.length, 2);
+		assert.strictEqual(memoryService.getSessionEntryValue(harness.session.sessionId)?.progress?.completedSteps, 2);
 	});
 
 	test('executePlan stops when the effective budget is exhausted', async () => {

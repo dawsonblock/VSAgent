@@ -8,7 +8,7 @@ import { VSBuffer } from '../../../../../base/common/buffer.js';
 import { observableValue } from '../../../../../base/common/observable.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { SessionAction, SessionActionKind, SessionActionRequestSource, SessionActionResult, SessionActionStatus, SessionCommandLaunchKind } from '../../../../services/actions/common/sessionActionTypes.js';
+import { SessionAction, SessionActionKind, SessionActionRequestSource, SessionActionResult, SessionActionStatus, SessionCommandLaunchKind, SessionWriteOperationStatus } from '../../../../services/actions/common/sessionActionTypes.js';
 import { ISession } from '../../../../services/sessions/common/session.js';
 import { IActiveSession, ISessionsManagementService } from '../../../../services/sessions/common/sessionsManagement.js';
 import { SessionsAICustomizationWorkspaceService } from '../../browser/aiCustomizationWorkspaceService.js';
@@ -66,6 +66,11 @@ function createService(options: {
 					advisorySources: [],
 					filesTouched: action.files,
 					applied: true,
+					operationCount: action.files.length,
+					operations: action.files.map(resource => ({
+						resource,
+						status: SessionWriteOperationStatus.Updated,
+					})),
 				};
 			}
 

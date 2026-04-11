@@ -463,6 +463,7 @@ import './contrib/chat/browser/customizationsDebugLog.contribution.js';
 import './contrib/copilotChatSessions/browser/copilotChatSessions.contribution.js';
 import './contrib/sessions/browser/sessions.contribution.js';
 import './contrib/sessions/browser/customizationsToolbar.contribution.js';
+import './contrib/autonomy/browser/autonomy.contribution.js';
 import './contrib/changes/browser/changesView.contribution.js';
 import './contrib/layout/browser/layout.contribution.js';
 import './contrib/codeReview/browser/codeReview.contributions.js';
@@ -483,6 +484,8 @@ import './services/actions/browser/sessionActionPolicyConfigService.js';
 import './services/actions/browser/sessionActionReceiptService.js';
 import './services/actions/browser/sessionActionScopeService.js';
 import './services/actions/browser/sessionActionService.js';
+import './services/memory/browser/sessionExecutionMemoryService.js';
+import './services/memory/browser/sessionExecutionSummaryService.js';
 import './services/sessions/browser/sessionsManagementService.js';
 
 //#endregion

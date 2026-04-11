@@ -69,6 +69,7 @@ export const enum AccessibilityVerbositySettingId {
 	SourceControl = 'accessibility.verbosity.sourceControl',
 	Find = 'accessibility.verbosity.find',
 	SessionsChat = 'accessibility.verbosity.sessionsChat',
+	SessionsAutonomy = 'accessibility.verbosity.sessionsAutonomy',
 	SessionsActionLog = 'accessibility.verbosity.sessionsActionLog'
 }
 
@@ -209,6 +210,10 @@ const configuration: IConfigurationNode = {
 		},
 		[AccessibilityVerbositySettingId.SessionsChat]: {
 			description: localize('verbosity.sessionsChat', 'Provide information about how to access the Agents app accessibility help menu when the chat input is focused.'),
+			...baseVerbosityProperty
+		},
+		[AccessibilityVerbositySettingId.SessionsAutonomy]: {
+			description: localize('verbosity.sessionsAutonomy', 'Provide information about how to access the Sessions autonomy help and Accessible View when an advisory autonomy view is focused.'),
 			...baseVerbosityProperty
 		},
 		[AccessibilityVerbositySettingId.SessionsActionLog]: {

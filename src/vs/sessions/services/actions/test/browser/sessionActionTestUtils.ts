@@ -19,6 +19,7 @@ import { ProviderCapabilitySet } from '../../common/sessionActionPolicy.js';
 import { ISessionActionReceiptService, SessionActionApprovalReceipt } from '../../common/sessionActionReceipts.js';
 import { ISessionActionScopeService, NormalizedSessionActionScope } from '../../common/sessionActionScope.js';
 import { SessionAction, SessionActionDenialReason, SessionActionKind, SessionActionRequestSource, SessionActionResult, SessionActionStatus, SessionCommandLaunchKind, SessionHostKind, SessionWriteOperationStatus } from '../../common/sessionActionTypes.js';
+import { SessionExecutionPhase } from '../../../memory/common/sessionExecutionMemoryService.js';
 import { ISessionsProvidersService } from '../../../sessions/browser/sessionsProvidersService.js';
 import { IChat, ISession, SessionStatus } from '../../../sessions/common/session.js';
 import { IActiveSession, ISessionsManagementService } from '../../../sessions/common/sessionsManagement.js';
@@ -171,6 +172,15 @@ export function createSessionsManagementServiceStub(activeSession: IActiveSessio
 		onDidChangeSessions: Event.None,
 		activeSession: observableValue('activeSession', activeSession),
 		activeProviderId: observableValue('activeProviderId', activeSession?.providerId),
+		activeAdvisoryExecutionState: observableValue('activeAdvisoryExecutionState', activeSession ? {
+			sessionId: activeSession.sessionId,
+			providerId: activeSession.providerId,
+			phase: SessionExecutionPhase.Ready,
+			startedAt: 0,
+			updatedAt: 0,
+		} : undefined),
+		activeAdvisoryPlan: observableValue('activeAdvisoryPlan', undefined),
+		activeAdvisoryExecutionSummary: observableValue('activeAdvisoryExecutionSummary', undefined),
 		setActiveProvider: () => { },
 		openSession: async () => { },
 		openChat: async () => { },

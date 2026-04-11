@@ -5,9 +5,10 @@
 
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable, DisposableMap, DisposableStore, IDisposable } from '../../../../base/common/lifecycle.js';
-import { IObservable, ISettableObservable, autorun, observableValue } from '../../../../base/common/observable.js';
+import { derived, IObservable, ISettableObservable, autorun, observableValue } from '../../../../base/common/observable.js';
 import { URI } from '../../../../base/common/uri.js';
 import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
+import { SessionExecutionMemoryEntry, ISessionExecutionMemoryService } from '../../memory/common/sessionExecutionMemoryService.js';
 import { IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -18,7 +19,9 @@ import { ISessionAutonomousExecutionService } from '../../autonomy/common/sessio
 import { ISessionActionService } from '../../actions/common/sessionActionService.js';
 import { SessionActionReceipt } from '../../actions/common/sessionActionReceipts.js';
 import { SessionAction, SessionActionKind, SessionActionRequestSource, SessionActionResult, SessionActionStatus, SessionCommandLaunchKind, SessionHostKind } from '../../actions/common/sessionActionTypes.js';
+import { SessionExecutionSummary, ISessionExecutionSummaryService } from '../../memory/common/sessionExecutionSummaryService.js';
 import { ISessionPlanningService } from '../../planning/common/sessionPlanningService.js';
+import { SessionPlan } from '../../planning/common/sessionPlanTypes.js';
 import { ActiveSessionSupportsMultiChatContext, IActiveSession, ISessionsChangeEvent, ISessionsManagementService } from '../common/sessionsManagement.js';
 import { ISessionsProvidersChangeEvent, ISessionsProvidersService } from './sessionsProvidersService.js';
 import { ISendRequestOptions, ISessionChangeEvent, ISessionsProvider } from '../common/sessionsProvider.js';
@@ -76,6 +79,15 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 	readonly activeSession: IObservable<IActiveSession | undefined> = this._activeSession;
 	private readonly _activeProviderId = observableValue<string | undefined>(this, undefined);
 	readonly activeProviderId: IObservable<string | undefined> = this._activeProviderId;
+	readonly activeAdvisoryExecutionState: IObservable<SessionExecutionMemoryEntry | undefined> = derived(reader => {
+		const activeSession = this._activeSession.read(reader);
+		return activeSession ? this._sessionExecutionMemoryService.getSessionEntry(activeSession.sessionId).read(reader) : undefined;
+	});
+	readonly activeAdvisoryPlan: IObservable<SessionPlan | undefined> = derived(reader => this.activeAdvisoryExecutionState.read(reader)?.plan);
+	readonly activeAdvisoryExecutionSummary: IObservable<SessionExecutionSummary | undefined> = derived(reader => {
+		const activeSession = this._activeSession.read(reader);
+		return activeSession ? this._sessionExecutionSummaryService.getSessionSummary(activeSession.sessionId).read(reader) : undefined;
+	});
 	private lastSelectedSession: URI | undefined;
 	private readonly isNewChatSessionContext: IContextKey<boolean>;
 	private readonly _activeSessionProviderId: IContextKey<string>;
@@ -94,6 +106,8 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 		@ISessionPlanningService private readonly _sessionPlanningService: ISessionPlanningService,
 		@ISessionAutonomousExecutionService private readonly _sessionAutonomousExecutionService: ISessionAutonomousExecutionService,
 		@ISessionActionService private readonly _sessionActionService: ISessionActionService,
+		@ISessionExecutionMemoryService private readonly _sessionExecutionMemoryService: ISessionExecutionMemoryService,
+		@ISessionExecutionSummaryService private readonly _sessionExecutionSummaryService: ISessionExecutionSummaryService,
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@IChatWidgetService private readonly chatWidgetService: IChatWidgetService,
 	) {
@@ -172,6 +186,7 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 	}
 
 	private onDidReplaceSession(from: ISession, to: ISession): void {
+		this._sessionExecutionMemoryService.replaceSessionEntry(from.sessionId, to.sessionId, to.providerId);
 		if (this._activeSession.get()?.sessionId === from.sessionId) {
 			this.setActiveSession(to);
 			this._onDidChangeSessions.fire({
@@ -451,8 +466,16 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 			return;
 		}
 
+		let plan: SessionPlan | undefined;
+		this._sessionExecutionMemoryService.beginPlanning({
+			sessionId: session.sessionId,
+			providerId: session.providerId,
+			intent: options.query,
+			summary: advisoryAutonomy.summary,
+		});
+
 		try {
-			const plan = await this._sessionPlanningService.createPlan({
+			plan = await this._sessionPlanningService.createPlan({
 				sessionId: session.sessionId,
 				providerId: session.providerId,
 				intent: options.query,
@@ -461,6 +484,8 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 				steps: advisoryAutonomy.steps,
 				budget: advisoryAutonomy.budget,
 			});
+			this._sessionExecutionMemoryService.setPlan(plan);
+			this._sessionExecutionMemoryService.beginExecution(plan);
 
 			const result = await this._sessionAutonomousExecutionService.executePlan({
 				session,
@@ -468,11 +493,20 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 				mode: advisoryAutonomy.mode,
 				requestedPermissionMode: advisoryAutonomy.requestedPermissionMode,
 			});
+			this._sessionExecutionMemoryService.completeExecution(plan, result);
 
 			if (result.status !== 'completed') {
 				this.logService.info(`[SessionsManagement] Advisory autonomy run for session ${session.sessionId} stopped with status '${result.status}'.`);
 			}
 		} catch (error) {
+			this._sessionExecutionMemoryService.failExecution({
+				sessionId: session.sessionId,
+				providerId: session.providerId,
+				intent: options.query,
+				summary: advisoryAutonomy.summary,
+				plan,
+				message: error instanceof Error ? error.message : String(error),
+			});
 			this.logService.warn('[SessionsManagement] Advisory autonomy execution failed before provider send; continuing with provider request.', error);
 		}
 	}

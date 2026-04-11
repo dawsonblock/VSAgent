@@ -45,6 +45,12 @@ editor part exists but is hidden (display:none) for future use.
 | Auxiliary Bar | `Parts.AUXILIARYBAR_PART` | Top-right section, right side | Visible | `ViewContainerLocation.AuxiliaryBar` |
 | Panel | `Parts.PANEL_PART` | Below Chat Bar and Auxiliary Bar (right section only) | Hidden | `ViewContainerLocation.Panel` |
 
+The panel hosts read-only operational views for the sessions window. In addition to the Logs container, the Sessions workbench registers an **Autonomy** panel container that exposes:
+
+- **Status** — current advisory planning/execution phase, progress, stop reason, and the latest recorded issue
+- **Plan** — the most recent advisory plan and its step list
+- **Summary** — a derived advisory summary for the active session
+
 #### Excluded Parts
 
 The following parts from the default workbench are **not included**:
@@ -172,6 +178,8 @@ This structure places the sidebar at the root level spanning the full window hei
 | Chat Bar | Remaining space |
 | Panel | 300px height |
 | Titlebar | Determined by `minimumHeight` (~30px) |
+
+The panel can now switch between the Logs container and the Autonomy container. The Autonomy container contributes three read-only views (Status, Plan, Summary) that are registered against `ViewContainerLocation.Panel` and consume the active advisory observables surfaced by `ISessionsManagementService`.
 
 The sessions sidebar can be resized down to a minimum width of 170px.
 
@@ -646,6 +654,7 @@ interface IPartVisibilityState {
 
 | Date | Change |
 |------|--------|
+| 2026-04-11 | Added a dedicated Sessions Autonomy panel container with read-only Status, Plan, and Summary views backed by Sessions-owned advisory execution memory and derived summaries. |
 | 2026-04-08 | Darkened the light-theme-only chat, auxiliary bar, and panel card borders with a sessions-specific CSS `border-color` override that uses `editorWidget.border`; dark and high-contrast themes continue using the existing part border tokens. |
 | 2026-04-04 | Inverted the default light-theme surface mapping so the sessions window background uses the off-white workbench/sidebar surface while the chat, changes, and panel cards use the brighter editor background; dark and high-contrast mappings remain unchanged. |
 | 2026-04-03 | Updated `SessionsTitleBarWidget` to format active session titles as `{Title} · {repo name} ({git branch/worktree name})` when repository detail metadata is available, falling back to the worktree folder name when needed. |

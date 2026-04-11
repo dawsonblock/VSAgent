@@ -78,6 +78,7 @@ src/vs/sessions/
 │   ├── actions/                        ← Mediated action policy, execution, approvals, receipts
 │   ├── autonomy/                       ← Autonomy mode contracts and bounded execution policy
 │   ├── configuration/browser/          ← Configuration service overrides
+│   ├── memory/                         ← Advisory planning/execution memory and derived summaries
 │   ├── planning/                       ← Deterministic planning and plan validation services
 │   ├── sessions/browser/               ← Sessions management services
 │   ├── title/                          ← Sessions title services
@@ -85,6 +86,7 @@ src/vs/sessions/
 ├── contrib/                            ← Feature contributions
 │   ├── accountMenu/browser/            ← Account menu widget and sidebar footer
 │   │   └── account.contribution.ts
+│   ├── autonomy/browser/               ← Advisory autonomy status, plan, and summary views
 │   ├── aiCustomizationManagement/      ← AI customization management editor
 │   │   └── browser/
 │   ├── aiCustomizationTreeView/        ← AI customization tree view sidebar
@@ -142,6 +144,8 @@ The agent sessions window uses an extensible provider model to manage sessions. 
 │                    ┌──────▼────────────────────▼──┐                              │
 │                    │  Sessions Management Service │  ISessionsManagementService  │
 │                    │  - activeSession: IObservable<ISessionData>                 │
+│                    │  - activeAdvisoryExecutionState: IObservable<...>           │
+│                    │  - activeAdvisoryPlan / activeAdvisoryExecutionSummary      │
 │                    │  - getSessions(): ISessionData[]                            │
 │                    │  - openSession / createNewSession                           │
 │                    │  - sendRequest / setSessionType                             │
@@ -250,6 +254,8 @@ interface ISessionsProvider {
 ```
 
 Provider capabilities are descriptive trust inputs, not authority grants. Sessions uses them to understand where a provider executes (`hostKind`) and whether mediated reads, writes, commands, git actions, or worktree operations are even eligible for consideration. Capability checks are action-kind specific and fail closed: `readFile`/`searchWorkspace` require `canReadWorkspace`, `writePatch` requires `canWriteWorkspace`, `runCommand` requires `canRunCommands`, `gitStatus`/`gitDiff` require `canMutateGit`, and `openWorktree` requires `canOpenWorktrees`. Policy, approval, execution, and receipt logging live in a separate Sessions-owned action service.
+
+Advisory planning and bounded execution state is kept in Sessions-owned memory services. `ISessionExecutionMemoryService` records the latest advisory planning/execution state per session, `ISessionExecutionSummaryService` derives a user-facing summary from that state, and `ISessionsManagementService` exposes active-session observables so read-only panel views can render advisory status without bypassing the mediated runtime.
 
 #### Session Data (`ISessionData`)
 
