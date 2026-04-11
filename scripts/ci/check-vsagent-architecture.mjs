@@ -98,6 +98,21 @@ function assertMethodDoesNotContain(relativePath, signature, patterns, contextLa
 	}
 }
 
+function assertMethodContainsAll(relativePath, signature, requiredSnippets, contextLabel) {
+	const source = readText(relativePath);
+	const body = extractMethodBody(source, signature);
+	if (body === undefined) {
+		failures.push(`${relativePath}: could not locate ${contextLabel} method '${signature}'.`);
+		return;
+	}
+
+	for (const snippet of requiredSnippets) {
+		if (!body.includes(snippet)) {
+			failures.push(`${relativePath}: ${contextLabel} is missing required coverage for '${snippet}'.`);
+		}
+	}
+}
+
 const actionBrowserFiles = walk('src/vs/sessions/services/actions/browser')
 	.filter(file => /\.(ts|mts|js)$/.test(file))
 	.filter(file => !file.endsWith('sessionActionExecutorBridge.ts'));
@@ -105,12 +120,20 @@ const actionBrowserFiles = walk('src/vs/sessions/services/actions/browser')
 assertNoPatternsInFiles(actionBrowserFiles, [
 	{ pattern: /\.(executeCommand|writeFile|createFile|del)\(/, message: 'direct command or file mutation is only allowed inside sessionActionExecutorBridge.ts' },
 	{ pattern: /child_process|\b(?:exec|spawn|fork|execFile)\s*\(/, message: 'process execution is only allowed inside sessionActionExecutorBridge.ts' },
+	{ pattern: /\.openRepository\(/, message: 'git repository inspection is only allowed inside sessionActionExecutorBridge.ts' },
+	{ pattern: /\.diffBetweenWithStats2?\(/, message: 'git diff inspection is only allowed inside sessionActionExecutorBridge.ts' },
 ]);
 
 assertNoPattern(
 	'src/vs/sessions/contrib/chat/browser/promptsService.ts',
-	/sessionActionPolicy|sessionsProvider/i,
-	'promptsService must remain advisory and must not import policy or provider capability modules.'
+	/sessionActionPolicy|sessionsProvider|sessionActionService|submitAction\(|approveAction\(/i,
+	'promptsService must remain advisory and must not import policy, provider capability, or execution modules.'
+);
+
+assertNoPattern(
+	'src/vs/sessions/contrib/chat/browser/promptsService.ts',
+	/canReadWorkspace|canWriteWorkspace|canRunCommands|canMutateGit|canOpenWorktrees/,
+	'promptsService must not inspect provider capability flags directly.'
 );
 
 const workbenchBoundaryFiles = [
@@ -135,6 +158,20 @@ const directRenameDeletePatterns = [
 assertMethodDoesNotContain(copilotProviderPath, 'async deleteSession(', directRenameDeletePatterns, 'public Copilot provider mutation');
 assertMethodDoesNotContain(copilotProviderPath, 'async deleteChat(', directRenameDeletePatterns, 'public Copilot provider mutation');
 assertMethodDoesNotContain(copilotProviderPath, 'async renameChat(', directRenameDeletePatterns, 'public Copilot provider mutation');
+
+const executorPath = 'src/vs/sessions/services/actions/browser/sessionActionExecutorBridge.ts';
+const requiredExecutorKinds = [
+	'SessionActionKind.SearchWorkspace',
+	'SessionActionKind.ReadFile',
+	'SessionActionKind.WritePatch',
+	'SessionActionKind.RunCommand',
+	'SessionActionKind.GitStatus',
+	'SessionActionKind.GitDiff',
+	'SessionActionKind.OpenWorktree',
+];
+
+assertMethodContainsAll(executorPath, 'supports(kind: SessionActionKind): boolean', requiredExecutorKinds, 'executor supports');
+assertMethodContainsAll(executorPath, 'async execute(action: SessionAction, scope: NormalizedSessionActionScope): Promise<SessionActionResult>', requiredExecutorKinds, 'executor dispatch');
 
 if (failures.length > 0) {
 	console.error('VSAgent architecture guard failed:\n');
