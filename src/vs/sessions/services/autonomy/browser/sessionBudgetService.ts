@@ -6,9 +6,9 @@
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
-import { SessionActionKind, WritePatchAction, WritePatchActionResult, SessionActionResult, SessionActionStatus } from '../../actions/common/sessionActionTypes.js';
+import { SessionActionKind, SessionActionResult, SessionActionStatus, SessionWriteOperationStatus, WritePatchAction, WritePatchActionResult } from '../../actions/common/sessionActionTypes.js';
 import { ISessionBudgetService, SessionBudgetExhaustion, SessionBudgetExhaustionReason, SessionBudgetReservationResult, SessionBudgetState } from '../common/sessionBudgetService.js';
-import { SessionPlanBudget, SessionPlanStep, SessionPlanStepKind } from '../../planning/common/sessionPlanTypes.js';
+import { estimateSessionPlanWritePatchModifiedFiles, estimateSessionPlanWritePatchWriteCount, SessionPlanBudget, SessionPlanStep, SessionPlanStepKind } from '../../planning/common/sessionPlanTypes.js';
 
 export class SessionBudgetService extends Disposable implements ISessionBudgetService {
 	declare readonly _serviceBrand: undefined;
@@ -52,13 +52,13 @@ export class SessionBudgetService extends Disposable implements ISessionBudgetSe
 			return this._deny(state, this._createExhaustion(SessionBudgetExhaustionReason.MaxCommands, `Executing step '${step.id}' would exceed the command budget.`, step.id), elapsedMs);
 		}
 
-		const fileWrites = state.fileWrites + this._estimateFileWrites(step);
-		if (fileWrites > state.budget.maxFileWrites) {
+		const projectedFileWrites = state.fileWrites + this._estimateFileWrites(step);
+		if (projectedFileWrites > state.budget.maxFileWrites) {
 			return this._deny(state, this._createExhaustion(SessionBudgetExhaustionReason.MaxFileWrites, `Executing step '${step.id}' would exceed the file-write budget.`, step.id), elapsedMs);
 		}
 
-		const modifiedFiles = this._mergeResources(state.modifiedFiles, this._estimateModifiedFiles(step));
-		if (modifiedFiles.length > state.budget.maxModifiedFiles) {
+		const projectedModifiedFiles = this._mergeResources(state.modifiedFiles, this._estimateModifiedFiles(step));
+		if (projectedModifiedFiles.length > state.budget.maxModifiedFiles) {
 			return this._deny(state, this._createExhaustion(SessionBudgetExhaustionReason.MaxModifiedFiles, `Executing step '${step.id}' would exceed the modified-file budget.`, step.id), elapsedMs);
 		}
 
@@ -68,8 +68,6 @@ export class SessionBudgetService extends Disposable implements ISessionBudgetSe
 				...state,
 				executedSteps,
 				executedCommands,
-				fileWrites,
-				modifiedFiles,
 				attemptsByStep: {
 					...state.attemptsByStep,
 					[step.id]: attemptCount,
@@ -81,12 +79,17 @@ export class SessionBudgetService extends Disposable implements ISessionBudgetSe
 
 	finalizeStep(state: SessionBudgetState, step: SessionPlanStep, result: SessionActionResult): SessionBudgetState {
 		const elapsedMs = Date.now() - state.startedAt;
-		const modifiedFiles = this._mergeResources(state.modifiedFiles, this._resultModifiedFiles(step, result));
+		const fileWrites = state.fileWrites + this._resultFileWrites(result);
+		const modifiedFiles = this._mergeResources(state.modifiedFiles, this._resultModifiedFiles(result));
 		const failures = state.failures + (result.status === SessionActionStatus.Executed ? 0 : 1);
 		let exhaustion = state.exhaustion;
 
 		if (!exhaustion && elapsedMs > state.budget.maxWallClockMs) {
 			exhaustion = this._createExhaustion(SessionBudgetExhaustionReason.MaxWallClockMs, `Execution exceeded the ${state.budget.maxWallClockMs}ms wall-clock budget after step '${step.id}'.`, step.id);
+		}
+
+		if (!exhaustion && fileWrites > state.budget.maxFileWrites) {
+			exhaustion = this._createExhaustion(SessionBudgetExhaustionReason.MaxFileWrites, `Step '${step.id}' exceeded the file-write budget with actual write operations.`, step.id);
 		}
 
 		if (!exhaustion && modifiedFiles.length > state.budget.maxModifiedFiles) {
@@ -99,6 +102,7 @@ export class SessionBudgetService extends Disposable implements ISessionBudgetSe
 
 		return {
 			...state,
+			fileWrites,
 			modifiedFiles,
 			failures,
 			elapsedMs,
@@ -133,28 +137,33 @@ export class SessionBudgetService extends Disposable implements ISessionBudgetSe
 
 	private _estimateFileWrites(step: SessionPlanStep): number {
 		const action = this._asWritePatchAction(step);
-		if (!action) {
-			return 0;
-		}
-
-		return action.operations?.length ?? action.files.length;
+		return estimateSessionPlanWritePatchWriteCount(action);
 	}
 
 	private _estimateModifiedFiles(step: SessionPlanStep): readonly URI[] {
 		const action = this._asWritePatchAction(step);
-		if (!action) {
-			return [];
-		}
-
-		return action.files;
+		return estimateSessionPlanWritePatchModifiedFiles(action);
 	}
 
-	private _resultModifiedFiles(step: SessionPlanStep, result: SessionActionResult): readonly URI[] {
+	private _resultFileWrites(result: SessionActionResult): number {
+		if (result.kind !== SessionActionKind.WritePatch) {
+			return 0;
+		}
+
+		const writePatchResult = result as WritePatchActionResult;
+		if (writePatchResult.operations.length === 0) {
+			return writePatchResult.filesTouched.length;
+		}
+
+		return writePatchResult.operations.filter(operation => operation.status === SessionWriteOperationStatus.Created || operation.status === SessionWriteOperationStatus.Updated || operation.status === SessionWriteOperationStatus.Deleted).length;
+	}
+
+	private _resultModifiedFiles(result: SessionActionResult): readonly URI[] {
 		if (result.kind === SessionActionKind.WritePatch) {
 			return (result as WritePatchActionResult).filesTouched;
 		}
 
-		return this._estimateModifiedFiles(step);
+		return [];
 	}
 
 	private _asWritePatchAction(step: SessionPlanStep): WritePatchAction | undefined {

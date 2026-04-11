@@ -11,7 +11,7 @@ import { SessionPlan, SessionPlanStep } from '../../planning/common/sessionPlanT
 import { SessionCheckpoint } from '../../checkpoints/common/sessionCheckpointTypes.js';
 
 export interface SessionEvaluationIssue {
-	readonly kind: 'scopeDrift' | 'noProgress' | 'failure' | 'budget' | 'policy' | 'capability';
+	readonly kind: 'scopeDrift' | 'noProgress' | 'failure' | 'budget' | 'policy' | 'capability' | 'approval';
 	readonly message: string;
 }
 

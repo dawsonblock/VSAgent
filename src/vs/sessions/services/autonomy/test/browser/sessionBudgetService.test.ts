@@ -7,7 +7,7 @@ import assert from 'assert';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { SessionActionKind, SessionActionRequestSource, SessionActionStatus } from '../../../actions/common/sessionActionTypes.js';
+import { SessionActionKind, SessionActionRequestSource, SessionActionStatus, SessionWriteOperationStatus } from '../../../actions/common/sessionActionTypes.js';
 import { SessionBudgetService } from '../../browser/sessionBudgetService.js';
 import { SessionBudgetExhaustionReason } from '../../common/sessionBudgetService.js';
 import { getDefaultSessionPlanBudget, SessionPlanCheckpointRequirement, SessionPlanRiskClass, SessionPlanStep, SessionPlanStepKind } from '../../../planning/common/sessionPlanTypes.js';
@@ -73,10 +73,57 @@ suite('SessionBudgetService', () => {
 		const reserved = service.reserveStep(service.createBudgetState(budget), step);
 		assert.strictEqual(reserved.allowed, true);
 		assert.strictEqual(reserved.state.executedCommands, 1);
+		assert.strictEqual(reserved.state.fileWrites, 0);
+		assert.deepStrictEqual(reserved.state.modifiedFiles, []);
 
 		const retryAttempt = service.reserveStep(reserved.state, step);
 		assert.strictEqual(retryAttempt.allowed, false);
 		assert.strictEqual(retryAttempt.exhaustion?.reason, SessionBudgetExhaustionReason.MaxRetriesPerStep);
+	});
+
+	test('finalizeStep tracks actual successful write operations instead of reserved estimates', () => {
+		const service = disposables.add(new SessionBudgetService());
+		const file = URI.file('/workspace/repo/src/app.ts');
+		const skippedFile = URI.file('/workspace/repo/src/skipped.ts');
+		const step: SessionPlanStep = {
+			id: 'patch',
+			kind: SessionPlanStepKind.WritePatch,
+			title: 'Patch the file',
+			dependsOn: [],
+			action: {
+				kind: SessionActionKind.WritePatch,
+				requestedBy: SessionActionRequestSource.Session,
+				patch: 'patch',
+				files: [file, skippedFile],
+				operations: [
+					{ resource: file, contents: 'patched' },
+					{ resource: skippedFile, contents: 'skipped' },
+				],
+			},
+			estimatedScope: { files: [file, skippedFile] },
+			riskClasses: [SessionPlanRiskClass.RepoMutation],
+			estimatedApprovalRequired: true,
+			checkpointRequirement: SessionPlanCheckpointRequirement.Required,
+		};
+		const reserved = service.reserveStep(service.createBudgetState(getDefaultSessionPlanBudget()), step);
+
+		const finalized = service.finalizeStep(reserved.state, step, {
+			actionId: 'patch-action',
+			kind: SessionActionKind.WritePatch,
+			status: SessionActionStatus.Executed,
+			advisorySources: [],
+			filesTouched: [file],
+			applied: true,
+			operationCount: 2,
+			operations: [
+				{ resource: file, status: SessionWriteOperationStatus.Updated, bytesWritten: 7 },
+				{ resource: skippedFile, status: SessionWriteOperationStatus.Skipped },
+			],
+			summary: 'Patched one file.',
+		});
+
+		assert.strictEqual(finalized.fileWrites, 1);
+		assert.deepStrictEqual(finalized.modifiedFiles.map(resource => resource.toString()), [file.toString()]);
 	});
 
 	test('finalizeStep tracks touched files and failure exhaustion', () => {
@@ -111,13 +158,19 @@ suite('SessionBudgetService', () => {
 			kind: SessionActionKind.WritePatch,
 			status: SessionActionStatus.Failed,
 			advisorySources: [],
-			filesTouched: [file, outsideFile],
+			filesTouched: [file],
 			applied: false,
+			operationCount: 2,
+			operations: [
+				{ resource: file, status: SessionWriteOperationStatus.Updated, bytesWritten: 7 },
+				{ resource: outsideFile, status: SessionWriteOperationStatus.Failed, error: 'write failed' },
+			],
 			summary: 'Patch failed.',
 		});
 
 		assert.strictEqual(finalized.failures, 1);
-		assert.deepStrictEqual(finalized.modifiedFiles.map(resource => resource.toString()).sort(), [file.toString(), outsideFile.toString()].sort());
+		assert.strictEqual(finalized.fileWrites, 1);
+		assert.deepStrictEqual(finalized.modifiedFiles.map(resource => resource.toString()), [file.toString()]);
 		assert.strictEqual(finalized.exhaustion?.reason, SessionBudgetExhaustionReason.MaxFailures);
 	});
 });

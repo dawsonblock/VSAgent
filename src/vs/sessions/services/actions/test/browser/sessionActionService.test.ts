@@ -530,6 +530,19 @@ suite('SessionActionScopeService', () => {
 		assert.ok(resolution.message?.includes('worktree root'));
 	});
 
+	test('denies write operations that escape the active session roots even when the declared file list stays inside them', () => {
+		const resolution = createScopeService().resolveScope({
+			kind: SessionActionKind.WritePatch,
+			requestedBy: SessionActionRequestSource.User,
+			patch: 'patch',
+			files: [URI.file('/workspace/repo/file.txt')],
+			operations: [{ resource: URI.file('/outside/file.txt'), contents: 'patched' }],
+		}, createExecutionContext(testRepositoryRoot, testProviderId, testSessionId), createActionProviderCapabilities());
+
+		assert.strictEqual(resolution.denialReason, SessionActionDenialReason.RootEscape);
+		assert.ok(resolution.message?.includes('/outside/file.txt'));
+	});
+
 	test('denies host-kind mismatches between the requested scope and provider host', () => {
 		const resolution = createScopeService().resolveScope({
 			kind: SessionActionKind.SearchWorkspace,

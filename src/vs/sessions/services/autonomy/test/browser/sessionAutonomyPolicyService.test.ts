@@ -92,4 +92,24 @@ suite('SessionAutonomyPolicyService', () => {
 		assert.ok(decision.blockedRiskClasses.includes(SessionPlanRiskClass.RemoteHostSensitive));
 		assert.ok(decision.reasons.some(reason => reason.includes('supervised_extended')));
 	});
+
+	test('supervised_extended still blocks worktree mutation until the executor bridge supports it', () => {
+		const service = disposables.add(new SessionAutonomyPolicyService());
+		const decision = service.resolveProfile({
+			mode: SessionAutonomyMode.SupervisedExtended,
+			providerCapabilities: createProviderCapabilities(),
+			policy: {
+				...getDefaultSessionPolicySnapshot([]),
+				allowWorkspaceWrites: true,
+				allowCommands: true,
+				allowGitMutation: true,
+				allowWorktreeMutation: true,
+			},
+			hostKind: SessionHostKind.Local,
+		});
+
+		assert.ok(!decision.allowedProfile.stepKinds.includes(SessionPlanStepKind.OpenWorktree));
+		assert.ok(decision.blockedStepKinds.includes(SessionPlanStepKind.OpenWorktree));
+		assert.ok(decision.reasons.some(reason => reason.includes('not yet supported')));
+	});
 });

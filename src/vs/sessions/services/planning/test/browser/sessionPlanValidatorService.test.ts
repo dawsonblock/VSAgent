@@ -192,7 +192,7 @@ suite('SessionPlanValidatorService', () => {
 						kind: SessionActionKind.WritePatch,
 						requestedBy: SessionActionRequestSource.Session,
 						patch: 'patch',
-						files: [fileOne, fileTwo],
+						files: [fileOne],
 						operations: [
 							{ resource: fileOne, contents: 'one' },
 							{ resource: fileTwo, contents: 'two' },
@@ -209,6 +209,40 @@ suite('SessionPlanValidatorService', () => {
 
 		assert.strictEqual(result.valid, false);
 		assert.ok(result.issues.some(issue => issue.code === SessionPlanValidationIssueCode.BudgetExceeded));
+	});
+
+	test('validatePlan rejects worktree steps even when provider capabilities and policy would otherwise allow them', async () => {
+		const planningService = disposables.add(new SessionPlanningService());
+		const validator = createValidator({ allowWorktreeMutation: true });
+		const worktreeRoot = URI.file('/workspace/repo-worktree');
+
+		const plan = await planningService.createPlan({
+			sessionId: 'session-1',
+			providerId: 'provider-1',
+			intent: 'Create a repair worktree.',
+			hostTarget,
+			steps: [
+				{
+					kind: SessionPlanStepKind.OpenWorktree,
+					title: 'Create the worktree',
+					action: {
+						kind: SessionActionKind.OpenWorktree,
+						requestedBy: SessionActionRequestSource.Session,
+						repository: repositoryRoot,
+						worktreePath: worktreeRoot,
+						branch: 'repair',
+					},
+				},
+			],
+		});
+
+		const result = await validator.validatePlan(plan, {
+			executionContext: createExecutionContext(),
+			providerCapabilities: createProviderCapabilities({ canOpenWorktrees: true }),
+		});
+
+		assert.strictEqual(result.valid, false);
+		assert.ok(result.issues.some(issue => issue.code === SessionPlanValidationIssueCode.UnsupportedAction));
 	});
 
 	test('validatePlan rejects mutating steps denied by existing policy and checkpoint rules', async () => {

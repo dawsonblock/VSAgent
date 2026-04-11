@@ -104,6 +104,8 @@ export class SessionAutonomyPolicyService extends Disposable implements ISession
 			blockStepKind(SessionPlanStepKind.OpenWorktree, 'Worktree mutation is not available for the selected autonomy envelope.');
 		}
 
+		blockStepKind(SessionPlanStepKind.OpenWorktree, 'Worktree mutation is not yet supported by the Sessions executor bridge.');
+
 		if (!allowedStepKinds.has(SessionPlanStepKind.WritePatch) && !allowedStepKinds.has(SessionPlanStepKind.OpenWorktree)) {
 			allowedRiskClasses.delete(SessionPlanRiskClass.RepoMutation);
 			blockedRiskClasses.add(SessionPlanRiskClass.RepoMutation);

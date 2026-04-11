@@ -27,10 +27,11 @@ import { AutonomyStopReason, SessionAutonomyMode } from '../../common/sessionAut
 suite('SessionAutonomousExecutionService', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite() as Pick<DisposableStore, 'add'>;
 
-	function createRuntime(policyOverrides?: Partial<ReturnType<typeof getDefaultSessionPolicySnapshot>>, harnessOptions?: Pick<SessionActionHarnessOptions, 'executor'>) {
+	function createRuntime(policyOverrides?: Partial<ReturnType<typeof getDefaultSessionPolicySnapshot>>, harnessOptions?: Pick<SessionActionHarnessOptions, 'executor' | 'providerCapabilityOverrides'>) {
 		const harness = createSessionActionHarness(disposables, {
 			policyOverrides,
 			executor: harnessOptions?.executor,
+			providerCapabilityOverrides: harnessOptions?.providerCapabilityOverrides,
 		});
 		const planningService = disposables.add(new SessionPlanningService());
 		const scopeService: ISessionActionScopeService = {
@@ -147,6 +148,8 @@ suite('SessionAutonomousExecutionService', () => {
 					advisorySources: action.advisorySources ?? [],
 					filesTouched: [file, outsideFile],
 					applied: true,
+					operationCount: 2,
+					operations: [],
 					summary: 'Patched files.',
 				};
 			},
@@ -189,5 +192,49 @@ suite('SessionAutonomousExecutionService', () => {
 		assert.strictEqual(result.stopReason, AutonomyStopReason.BudgetExceeded);
 		assert.strictEqual(harness.getExecuteCalls(), 1);
 		assert.strictEqual(result.stepResults.length, 1);
+	});
+
+	test('executePlan rejects openWorktree steps before execution because the executor bridge does not support them', async () => {
+		const worktreeRoot = URI.file('/workspace/repo-worktree');
+		const { harness, planningService, executionService } = createRuntime({
+			allowWorktreeMutation: true,
+		}, {
+			providerCapabilityOverrides: { canOpenWorktrees: true },
+		});
+
+		const plan = await planningService.createPlan({
+			sessionId: harness.session.sessionId,
+			providerId: harness.session.providerId,
+			intent: 'Create a repair worktree',
+			hostTarget: {
+				kind: SessionHostKind.Local,
+				providerId: harness.session.providerId,
+			},
+			steps: [
+				{
+					id: 'worktree',
+					kind: SessionPlanStepKind.OpenWorktree,
+					title: 'Create the worktree',
+					action: {
+						kind: SessionActionKind.OpenWorktree,
+						requestedBy: SessionActionRequestSource.Session,
+						repository: URI.file('/workspace/repo'),
+						worktreePath: worktreeRoot,
+						branch: 'repair',
+					},
+				},
+			],
+		});
+
+		const result = await executionService.executePlan({
+			session: harness.session,
+			plan,
+			mode: SessionAutonomyMode.SupervisedExtended,
+		});
+
+		assert.strictEqual(result.status, SessionPlanStatus.Rejected);
+		assert.strictEqual(result.stopReason, AutonomyStopReason.ValidationFailed);
+		assert.strictEqual(harness.getExecuteCalls(), 0);
+		assert.ok(result.issues.some(issue => issue.message.includes('not yet supported')));
 	});
 });
