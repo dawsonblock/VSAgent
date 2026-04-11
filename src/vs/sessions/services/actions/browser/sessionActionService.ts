@@ -342,6 +342,7 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 			isRegexp: this._getIsRegexp(options.action),
 			maxResults: this._getMaxResults(options.action),
 			resultCount: this._getResultCount(executionResult),
+			exitCode: this._getExitCode(executionResult),
 			resource: this._getResource(options.action, executionResult),
 			startLine: this._getStartLine(options.action),
 			endLine: this._getEndLine(options.action),
