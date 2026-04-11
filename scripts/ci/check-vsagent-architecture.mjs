@@ -198,6 +198,7 @@ for (const proofFile of [
 	'src/vs/sessions/services/actions/test/browser/providerCapabilityEnforcement.test.ts',
 	'src/vs/sessions/contrib/logs/test/browser/sessionActionLogView.test.ts',
 	'src/vs/sessions/contrib/logs/test/browser/sessionActionLogParity.test.ts',
+	'src/vs/sessions/contrib/logs/browser/sessionActionLogView.ts',
 ]) {
 	assertFileContainsAll(proofFile, requiredExecutorKinds, 'proof coverage');
 }
