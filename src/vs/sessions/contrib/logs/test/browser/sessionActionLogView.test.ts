@@ -60,8 +60,14 @@ suite('SessionActionLogView', () => {
 			cwd: URI.file('/workspace/repo'),
 			repositoryPath: URI.file('/workspace/repo'),
 			worktreePath: URI.file('/workspace/repo'),
-			stdoutExcerpt: 'ok',
-			stderrExcerpt: undefined,
+			command: 'npm',
+			args: ['test'],
+			branch: 'feature',
+			stdout: 'ok',
+			stderr: undefined,
+			approvalSummary: 'Approved write',
+			approvalFingerprint: 'fp-1',
+			denialReason: status === SessionActionReceiptStatus.Denied ? SessionActionDenialReason.PolicyDenied : undefined,
 			approval: {
 				required: true,
 				granted: true,
@@ -100,9 +106,23 @@ suite('SessionActionLogView', () => {
 		const text = formatSessionActionLogText('Session One', [receipt]);
 
 		assert.ok(details.some(detail => detail.label === 'Approval'));
+		assert.ok(details.some(detail => detail.label === 'Provider'));
+		assert.ok(details.some(detail => detail.label === 'Host'));
+		assert.ok(details.some(detail => detail.label === 'Command'));
+		assert.ok(details.some(detail => detail.label === 'Requested Scope'));
+		assert.ok(details.some(detail => detail.label === 'Approved Scope'));
+		assert.ok(details.some(detail => detail.label === 'Repository'));
+		assert.ok(details.some(detail => detail.label === 'Worktree'));
+		assert.ok(details.some(detail => detail.label === 'Denial Reason'));
 		assert.ok(details.some(detail => detail.label === 'Denial'));
+		assert.ok(details.some(detail => detail.label === 'Stdout'));
 		assert.ok(text.includes('Action log for Session One'));
+		assert.ok(text.includes('| Denied | writePatch | provider-1 | remote'));
 		assert.ok(text.includes('Denied'));
 		assert.ok(text.includes('Denied by policy'));
+		assert.ok(text.includes('- Requested Scope:'));
+		assert.ok(text.includes('- Approved Scope:'));
+		assert.ok(text.includes('- Host: remote | provider-1 | remote-host'));
+		assert.ok(text.includes('- Repository: file:///workspace/repo'));
 	});
 });

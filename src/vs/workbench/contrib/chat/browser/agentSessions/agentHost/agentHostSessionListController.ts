@@ -80,15 +80,21 @@ export class AgentHostSessionListController extends Disposable implements IChatS
 					this.refresh(cts.token).finally(() => cts.dispose());
 					break;
 				}
-				case ActionType.SessionTitleChanged:
-					this._updateItem(AgentSession.id(e.action.session), item => ({ ...item, label: e.action.title }));
+				case ActionType.SessionTitleChanged: {
+					const action = e.action;
+					this._updateItem(AgentSession.id(action.session), item => ({ ...item, label: action.title }));
 					break;
-				case ActionType.SessionIsReadChanged:
-					this._updateItem(AgentSession.id(e.action.session), item => ({ ...item, read: e.action.isRead }));
+				}
+				case ActionType.SessionIsReadChanged: {
+					const action = e.action;
+					this._updateItem(AgentSession.id(action.session), item => ({ ...item, read: action.isRead }));
 					break;
-				case ActionType.SessionIsDoneChanged:
-					this._updateItem(AgentSession.id(e.action.session), item => ({ ...item, archived: e.action.isDone }));
+				}
+				case ActionType.SessionIsDoneChanged: {
+					const action = e.action;
+					this._updateItem(AgentSession.id(action.session), item => ({ ...item, archived: action.isDone }));
 					break;
+				}
 			}
 		}));
 	}
@@ -122,6 +128,30 @@ export class AgentHostSessionListController extends Disposable implements IChatS
 			session: AgentSession.uri(this._provider, rawId).toString(),
 			isRead: read,
 		});
+		return true;
+	}
+
+	async renameChatSession(sessionResource: URI, title: string): Promise<boolean> {
+		const rawId = this._rawIdFromResource(sessionResource);
+		if (!rawId) {
+			return false;
+		}
+
+		this._connection.dispatch({
+			type: ActionType.SessionTitleChanged,
+			session: AgentSession.uri(this._provider, rawId).toString(),
+			title,
+		});
+		return true;
+	}
+
+	async deleteChatSession(sessionResource: URI): Promise<boolean> {
+		const rawId = this._rawIdFromResource(sessionResource);
+		if (!rawId) {
+			return false;
+		}
+
+		await this._connection.disposeSession(AgentSession.uri(this._provider, rawId));
 		return true;
 	}
 

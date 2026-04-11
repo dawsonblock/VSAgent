@@ -668,11 +668,11 @@ export class RenameAgentSessionAction extends BaseAgentSessionAction {
 		}
 
 		const quickInputService = accessor.get(IQuickInputService);
-		const chatService = accessor.get(IChatService);
+		const agentSessionsService = accessor.get(IAgentSessionsService);
 
 		const title = await quickInputService.input({ prompt: localize('newChatTitle', "New agent session title"), value: session.label });
 		if (title) {
-			chatService.setChatSessionTitle(session.resource, title);
+			await agentSessionsService.renameSession(session, title);
 		}
 	}
 }
@@ -697,9 +697,9 @@ export class DeleteAgentSessionAction extends BaseAgentSessionAction {
 			return;
 		}
 
-		const chatService = accessor.get(IChatService);
 		const dialogService = accessor.get(IDialogService);
 		const widgetService = accessor.get(IChatWidgetService);
+		const agentSessionsService = accessor.get(IAgentSessionsService);
 
 		const confirmed = await dialogService.confirm({
 			message: sessions.length === 1
@@ -718,8 +718,7 @@ export class DeleteAgentSessionAction extends BaseAgentSessionAction {
 			// Clear chat widget
 			await widgetService.getWidgetBySessionResource(session.resource)?.clear();
 
-			// Remove from storage
-			await chatService.removeHistoryEntry(session.resource);
+			await agentSessionsService.deleteSession(session);
 		}
 	}
 }

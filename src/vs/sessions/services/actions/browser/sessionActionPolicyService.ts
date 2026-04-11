@@ -52,8 +52,12 @@ export class SessionActionPolicyService implements ISessionActionPolicyService {
 	}
 
 	private _readDecision(input: SessionActionPolicyInput, approvedScope: SessionActionPolicyDecision['approvedScope'], scopeConstraints: readonly ScopeConstraint[]): SessionActionPolicyDecision {
-		if (!input.providerCapabilities.canReadWorkspace || !input.policy.allowWorkspaceReads) {
+		if (!input.providerCapabilities.canReadWorkspace) {
 			return this._deny(approvedScope, scopeConstraints, SessionActionDenialReason.ProviderCapabilityMissing, 'The active provider cannot read from the workspace.', CommandRiskClass.ReadOnly);
+		}
+
+		if (!input.policy.allowWorkspaceReads) {
+			return this._deny(approvedScope, scopeConstraints, SessionActionDenialReason.PolicyDenied, 'Workspace reads are blocked by the active Sessions policy.', CommandRiskClass.ReadOnly);
 		}
 
 		return {
@@ -66,8 +70,12 @@ export class SessionActionPolicyService implements ISessionActionPolicyService {
 	}
 
 	private _writeDecision(input: SessionActionPolicyInput, approvedScope: SessionActionPolicyDecision['approvedScope'], scopeConstraints: readonly ScopeConstraint[]): SessionActionPolicyDecision {
-		if (!input.providerCapabilities.canWriteWorkspace || !input.policy.allowWorkspaceWrites) {
+		if (!input.providerCapabilities.canWriteWorkspace) {
 			return this._deny(approvedScope, scopeConstraints, SessionActionDenialReason.ProviderCapabilityMissing, 'The active provider cannot write to the workspace.', CommandRiskClass.WorkspaceWrite);
+		}
+
+		if (!input.policy.allowWorkspaceWrites) {
+			return this._deny(approvedScope, scopeConstraints, SessionActionDenialReason.PolicyDenied, 'Workspace writes are blocked by the active Sessions policy.', CommandRiskClass.WorkspaceWrite);
 		}
 
 		const approvalRequirement = input.action.requestedBy === SessionActionRequestSource.User
@@ -126,22 +134,30 @@ export class SessionActionPolicyService implements ISessionActionPolicyService {
 	}
 
 	private _gitReadDecision(input: SessionActionPolicyInput, approvedScope: SessionActionPolicyDecision['approvedScope'], scopeConstraints: readonly ScopeConstraint[]): SessionActionPolicyDecision {
-		if (!input.providerCapabilities.canReadWorkspace || !input.policy.allowWorkspaceReads) {
-			return this._deny(approvedScope, scopeConstraints, SessionActionDenialReason.ProviderCapabilityMissing, 'The active provider cannot inspect git state for this workspace.', CommandRiskClass.ReadOnly);
+		if (!input.providerCapabilities.canMutateGit) {
+			return this._deny(approvedScope, scopeConstraints, SessionActionDenialReason.ProviderCapabilityMissing, 'The active provider cannot inspect or mutate git state through Sessions mediation.', CommandRiskClass.GitMutation);
+		}
+
+		if (!input.policy.allowGitMutation) {
+			return this._deny(approvedScope, scopeConstraints, SessionActionDenialReason.PolicyDenied, 'Git inspection and mutation are blocked by the active Sessions policy.', CommandRiskClass.GitMutation);
 		}
 
 		return {
 			mode: SessionActionPolicyMode.Allow,
 			approvalRequirement: ApprovalRequirement.None,
 			approvedScope,
-			commandRiskClass: CommandRiskClass.ReadOnly,
+			commandRiskClass: CommandRiskClass.GitMutation,
 			scopeConstraints,
 		};
 	}
 
 	private _worktreeDecision(input: SessionActionPolicyInput, approvedScope: SessionActionPolicyDecision['approvedScope'], scopeConstraints: readonly ScopeConstraint[]): SessionActionPolicyDecision {
-		if (!input.providerCapabilities.canMutateGit || !input.providerCapabilities.canOpenWorktrees || !input.policy.allowWorktreeMutation) {
-			return this._deny(approvedScope, scopeConstraints, SessionActionDenialReason.ProviderCapabilityMissing, 'The active provider cannot mutate worktrees.', CommandRiskClass.GitMutation);
+		if (!input.providerCapabilities.canOpenWorktrees) {
+			return this._deny(approvedScope, scopeConstraints, SessionActionDenialReason.ProviderCapabilityMissing, 'The active provider cannot open worktrees through Sessions mediation.', CommandRiskClass.GitMutation);
+		}
+
+		if (!input.policy.allowWorktreeMutation) {
+			return this._deny(approvedScope, scopeConstraints, SessionActionDenialReason.PolicyDenied, 'Worktree mutation is blocked by the active Sessions policy.', CommandRiskClass.GitMutation);
 		}
 
 		const approvalRequired = input.providerCapabilities.requiresApprovalForWorktreeActions || input.action.requestedBy !== SessionActionRequestSource.User;

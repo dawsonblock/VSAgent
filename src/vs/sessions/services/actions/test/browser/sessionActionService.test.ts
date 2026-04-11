@@ -22,6 +22,7 @@ import { ISessionActionScopeService, NormalizedSessionActionScope } from '../../
 import { ProviderCapabilitySet } from '../../common/sessionActionPolicy.js';
 import { RunCommandAction, SessionAction, SessionActionDenialReason, SessionActionKind, SessionActionRequestSource, SessionActionResult, SessionActionStatus, SessionCommandLaunchKind, SessionHostKind } from '../../common/sessionActionTypes.js';
 import { ISessionsProvidersService } from '../../../sessions/browser/sessionsProvidersService.js';
+import { getSessionsProviderActionCapabilityDenial } from '../../../sessions/common/sessionsProvider.js';
 import { ISession, SessionStatus } from '../../../sessions/common/session.js';
 
 suite('SessionActionService', () => {
@@ -170,6 +171,7 @@ suite('SessionActionService', () => {
 				sendAndCreateChat: async () => session,
 			} : undefined,
 			getProviderCapabilities: (candidateProviderId: string) => candidateProviderId === providerId ? providerCapabilities : undefined,
+			getActionCapabilityDenial: (candidateProviderId: string, actionKind: SessionActionKind) => candidateProviderId === providerId ? getSessionsProviderActionCapabilityDenial(actionKind, providerCapabilities) : undefined,
 			getProviderMetadata: () => undefined,
 			resolveProviderHostKind: () => providerCapabilities.hostKind,
 		} as ISessionsProvidersService;
@@ -208,15 +210,21 @@ suite('SessionActionService', () => {
 				executeCalls++;
 				lastExecutedAction = action;
 				const runCommandAction = action as RunCommandAction;
+				const args = (runCommandAction.args ?? []).map(String);
 				return {
 					actionId: runCommandAction.id ?? 'unknown',
 					kind: SessionActionKind.RunCommand,
 					status: options?.executorStatus ?? SessionActionStatus.Executed,
+					denialReason: options?.executorStatus === SessionActionStatus.Failed ? SessionActionDenialReason.ExecutionFailed : undefined,
+					denialMessage: options?.executorStatus === SessionActionStatus.Failed ? 'command failed' : undefined,
 					advisorySources: runCommandAction.advisorySources ?? [],
-					commandLine: [runCommandAction.command, ...(runCommandAction.args ?? []).map(String)].join(' ').trim(),
+					command: runCommandAction.command,
+					args,
+					cwd: runCommandAction.cwd,
+					commandLine: [runCommandAction.command, ...args].join(' ').trim(),
 					exitCode: options?.executorStatus === SessionActionStatus.Failed ? 1 : 0,
-					stdoutExcerpt: options?.executorStatus === SessionActionStatus.Failed ? undefined : 'command output',
-					stderrExcerpt: options?.executorStatus === SessionActionStatus.Failed ? 'command failed' : undefined,
+					stdout: options?.executorStatus === SessionActionStatus.Failed ? '' : 'command output',
+					stderr: options?.executorStatus === SessionActionStatus.Failed ? 'command failed' : '',
 					summary: options?.executorStatus === SessionActionStatus.Failed ? 'Command failed.' : 'Command completed successfully.',
 				};
 			},
@@ -260,9 +268,29 @@ suite('SessionActionService', () => {
 		assert.ok(denied.message?.includes('not permitted by the active Sessions policy'));
 		assert.strictEqual(receipts.length, 1);
 		assert.strictEqual(receipts[0].status, SessionActionReceiptStatus.Denied);
+		assert.strictEqual(receipts[0].denialReason, SessionActionDenialReason.PolicyDenied);
 		assert.strictEqual(receipts[0].denial?.reason, SessionActionDenialReason.PolicyDenied);
 		assert.strictEqual(receipts[0].approval, undefined);
 		assert.ok(receipts[0].error?.message.includes('not permitted by the active Sessions policy'));
+	});
+
+	test('submitAction denies actions when provider capability mapping blocks the action kind', async () => {
+		const harness = createHarness({
+			providerCapabilityOverrides: { canMutateGit: false },
+			policyOverrides: { allowGitMutation: true },
+		});
+		const result = await harness.service.submitAction(sessionId, providerId, {
+			kind: SessionActionKind.GitStatus,
+			requestedBy: SessionActionRequestSource.User,
+			repository: repositoryRoot,
+		});
+		const receipts = harness.service.getReceiptsForSession(sessionId);
+
+		assert.strictEqual(result.status, SessionActionStatus.Denied);
+		assert.strictEqual(result.denialReason, SessionActionDenialReason.ProviderCapabilityMissing);
+		assert.strictEqual(harness.getApprovalCalls(), 0);
+		assert.strictEqual(harness.getExecuteCalls(), 0);
+		assert.strictEqual(receipts[0].denialReason, SessionActionDenialReason.ProviderCapabilityMissing);
 	});
 
 	test('approveAction records an approved receipt without executing the action', async () => {
@@ -289,6 +317,8 @@ suite('SessionActionService', () => {
 		assert.strictEqual(receipt.status, SessionActionReceiptStatus.Approved);
 		assert.strictEqual(receipt.approval?.granted, true);
 		assert.strictEqual(receipt.approval?.source, 'dialog');
+		assert.strictEqual(receipt.approvalSummary, 'Approved internal command.');
+		assert.strictEqual(receipt.approvalFingerprint, 'approval-fingerprint');
 		assert.strictEqual(receipt.executionSummary, 'Approved internal command.');
 	});
 
@@ -308,8 +338,103 @@ suite('SessionActionService', () => {
 		assert.strictEqual(harness.getExecuteCalls(), 1);
 		assert.strictEqual((harness.getLastExecutedAction() as RunCommandAction | undefined)?.command, 'npm');
 		assert.strictEqual(receipt.status, SessionActionReceiptStatus.Executed);
-		assert.strictEqual(receipt.stdoutExcerpt, 'command output');
+		assert.strictEqual(receipt.command, 'npm');
+		assert.deepStrictEqual(receipt.args, ['test']);
+		assert.strictEqual(receipt.stdout, 'command output');
+		assert.strictEqual(receipt.stderr, '');
 		assert.strictEqual(receipt.executionSummary, 'Command completed successfully.');
+	});
+
+	test('submitAction records executor exceptions as failed receipts instead of denials', async () => {
+		const session = createSession();
+		const providerCapabilities = createProviderCapabilities();
+		const providersService = {
+			_serviceBrand: undefined,
+			onDidChangeProviders: Event.None,
+			registerProvider: () => { throw new Error('Not implemented in test'); },
+			getProviders: () => [],
+			getProvider: () => ({
+				id: providerId,
+				label: 'Provider',
+				icon: Codicon.account,
+				sessionTypes: [],
+				capabilities: providerCapabilities,
+				browseActions: [],
+				resolveWorkspace: () => session.workspace.get()!,
+				getSessions: () => [session],
+				onDidChangeSessions: Event.None,
+				createNewSession: () => session,
+				setSessionType: () => session,
+				getSessionTypes: () => [],
+				renameChat: async () => { },
+				setModel: () => { },
+				archiveSession: async () => { },
+				unarchiveSession: async () => { },
+				deleteSession: async () => { },
+				deleteChat: async () => { },
+				setRead: () => { },
+				sendAndCreateChat: async () => session,
+			}),
+			getProviderCapabilities: () => providerCapabilities,
+			getActionCapabilityDenial: (_providerId: string, actionKind: SessionActionKind) => getSessionsProviderActionCapabilityDenial(actionKind, providerCapabilities),
+			getProviderMetadata: () => undefined,
+			resolveProviderHostKind: () => providerCapabilities.hostKind,
+		} as ISessionsProvidersService;
+		const scopeService = {
+			_serviceBrand: undefined,
+			resolveScope: () => ({ scope: createScope() }),
+		} as ISessionActionScopeService;
+		const policyService = new SessionActionPolicyService({
+			onDidChangePolicy: Event.None,
+			async getPolicySnapshot(_executionContext, allowedRoots) {
+				return {
+					...getDefaultSessionPolicySnapshot(allowedRoots),
+					allowCommands: true,
+					allowedRoots,
+				};
+			},
+		} as ISessionActionPolicyConfigService);
+		const approvalService = {
+			_serviceBrand: undefined,
+			async requestApproval(): Promise<SessionActionApprovalDecision> {
+				return {
+					approved: true,
+					approval: {
+						required: false,
+						granted: true,
+						source: 'implicit',
+						summary: 'Approved.',
+					},
+				};
+			},
+		} as ISessionActionApprovalService;
+		const executorBridge = {
+			_serviceBrand: undefined,
+			supports: () => true,
+			async execute(): Promise<SessionActionResult> {
+				throw new Error('executor blew up');
+			},
+		} as ISessionActionExecutorBridge;
+		const receiptService = disposables.add(new SessionActionReceiptService()) as ISessionActionReceiptService;
+		const service = disposables.add(new SessionActionService(
+			providersService,
+			scopeService,
+			policyService,
+			approvalService,
+			executorBridge,
+			receiptService,
+			new NullLogService(),
+		));
+
+		const result = await service.submitAction(sessionId, providerId, createCommandAction('npm', SessionActionRequestSource.User));
+		const receipts = service.getReceiptsForSession(sessionId);
+
+		assert.strictEqual(result.status, SessionActionStatus.Failed);
+		assert.strictEqual(result.denialReason, SessionActionDenialReason.ExecutionFailed);
+		assert.strictEqual(receipts.length, 1);
+		assert.strictEqual(receipts[0].status, SessionActionReceiptStatus.Failed);
+		assert.strictEqual(receipts[0].denialReason, SessionActionDenialReason.ExecutionFailed);
+		assert.ok(receipts[0].error?.message.includes('executor blew up'));
 	});
 
 	test('submitAction records ordered receipt timestamps across mediation and execution', async () => {

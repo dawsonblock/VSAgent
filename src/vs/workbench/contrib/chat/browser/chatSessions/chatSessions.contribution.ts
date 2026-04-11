@@ -324,7 +324,8 @@ export class ChatSessionsService extends Disposable implements IChatSessionsServ
 		@IContextKeyService private readonly _contextKeyService: IContextKeyService,
 		@IMenuService private readonly _menuService: IMenuService,
 		@IThemeService private readonly _themeService: IThemeService,
-		@ILabelService private readonly _labelService: ILabelService
+		@ILabelService private readonly _labelService: ILabelService,
+		@IChatService private readonly _chatService: IChatService
 	) {
 		super();
 
@@ -922,11 +923,49 @@ export class ChatSessionsService extends Disposable implements IChatSessionsServ
 		return this.withSessionItemController(sessionResource, controller => controller.setChatSessionRead?.(sessionResource, read) ?? false);
 	}
 
+	renameChatSession(sessionResource: URI, title: string): Promise<boolean> {
+		return this.withSessionItemControllerAsync(sessionResource, async controller => {
+			if (await (controller.renameChatSession?.(sessionResource, title) ?? Promise.resolve(false))) {
+				return true;
+			}
+
+			await this._chatService.setChatSessionTitle(sessionResource, title);
+			return true;
+		}, async () => {
+			await this._chatService.setChatSessionTitle(sessionResource, title);
+			return true;
+		});
+	}
+
+	deleteChatSession(sessionResource: URI): Promise<boolean> {
+		return this.withSessionItemControllerAsync(sessionResource, async controller => {
+			if (await (controller.deleteChatSession?.(sessionResource) ?? Promise.resolve(false))) {
+				return true;
+			}
+
+			await this._chatService.removeHistoryEntry(sessionResource);
+			return true;
+		}, async () => {
+			await this._chatService.removeHistoryEntry(sessionResource);
+			return true;
+		});
+	}
+
 	private withSessionItemController(sessionResource: URI, fn: (controller: IChatSessionItemController) => boolean): boolean {
 		const resolvedType = this._resolveToPrimaryType(sessionResource.scheme) ?? sessionResource.scheme;
 		const controller = this._itemControllers.get(resolvedType)?.controller ?? this._itemControllers.get(sessionResource.scheme)?.controller;
 		if (!controller) {
 			return false;
+		}
+
+		return fn(controller);
+	}
+
+	private withSessionItemControllerAsync(sessionResource: URI, fn: (controller: IChatSessionItemController) => Promise<boolean>, fallback?: () => Promise<boolean>): Promise<boolean> {
+		const resolvedType = this._resolveToPrimaryType(sessionResource.scheme) ?? sessionResource.scheme;
+		const controller = this._itemControllers.get(resolvedType)?.controller ?? this._itemControllers.get(sessionResource.scheme)?.controller;
+		if (!controller) {
+			return fallback ? fallback() : Promise.resolve(false);
 		}
 
 		return fn(controller);

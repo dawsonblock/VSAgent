@@ -7,7 +7,7 @@ import { Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { PolicyDenialMetadata } from './sessionActionPolicy.js';
-import { NormalizedHostTarget, SessionActionKind, SessionHostKind } from './sessionActionTypes.js';
+import { NormalizedHostTarget, SessionActionDenialReason, SessionActionKind, SessionHostKind } from './sessionActionTypes.js';
 
 export const enum SessionActionReceiptStatus {
 	Denied = 'denied',
@@ -60,8 +60,14 @@ export interface SessionActionReceipt {
 	readonly cwd?: URI;
 	readonly repositoryPath?: URI;
 	readonly worktreePath?: URI;
-	readonly stdoutExcerpt?: string;
-	readonly stderrExcerpt?: string;
+	readonly command?: string;
+	readonly args?: readonly string[];
+	readonly branch?: string;
+	readonly stdout?: string;
+	readonly stderr?: string;
+	readonly approvalSummary?: string;
+	readonly approvalFingerprint?: string;
+	readonly denialReason?: SessionActionDenialReason;
 	readonly approval?: SessionActionApprovalReceipt;
 	readonly denial?: PolicyDenialMetadata;
 	readonly advisorySources: readonly string[];

@@ -105,9 +105,8 @@ export class SessionsAICustomizationWorkspaceService implements IAICustomization
 	}
 
 	/**
-	 * Commits the deletion of files that have already been removed from disk.
-	 * Always stages + commits the removal in the main repository, and also
-	 * in the worktree if one is active.
+	 * Deletes customization files or directories and commits the removal in the
+	 * main repository, and also in the worktree if one is active.
 	 */
 	async deleteFiles(_projectRoot: URI, fileUris: URI[]): Promise<void> {
 		const session = this.sessionsService.activeSession.get();
@@ -202,9 +201,8 @@ export class SessionsAICustomizationWorkspaceService implements IAICustomization
 	}
 
 	/**
-	 * Commits the deletion of a file to the main repository and optionally
-	 * the worktree. The file is already deleted from disk before this is called;
-	 * `git add` on a deleted path stages the removal.
+	 * Deletes a file or directory from the main repository and optionally the
+	 * worktree, then stages and commits the removal in each tree.
 	 */
 	private async commitDeletionToRepos(fileUri: URI, repositoryUri: URI, worktreeUri: URI | undefined): Promise<void> {
 		const session = this.sessionsService.activeSession.get();
@@ -248,7 +246,9 @@ export class SessionsAICustomizationWorkspaceService implements IAICustomization
 		if (worktreeUri) {
 			const worktreeFileUri = URI.joinPath(worktreeUri, relPath);
 			try {
-				// The file may already be deleted from the worktree by the caller
+				if (worktreeFileUri.toString() !== repoFileUri.toString() && await this.fileService.exists(worktreeFileUri)) {
+					await this.deleteFileFromTarget(session, worktreeFileUri, repositoryUri, worktreeUri);
+				}
 				await this.runSessionsCommand(session,
 					'github.copilot.cli.sessions.commitToWorktree',
 					[{ worktreeUri, fileUri: worktreeFileUri }],

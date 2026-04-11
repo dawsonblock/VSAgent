@@ -78,6 +78,8 @@ function createService(options: {
 				kind: SessionActionKind.RunCommand,
 				status: SessionActionStatus.Executed,
 				advisorySources: [],
+				command: action.command,
+				args: [],
 				commandLine: action.command,
 			};
 		},
@@ -212,7 +214,7 @@ suite('SessionsAICustomizationWorkspaceService', () => {
 		const service = createService({
 			repositoryUri,
 			worktreeUri,
-			existingFiles: new Set([repoFileUri.toString()]),
+			existingFiles: new Set([repoFileUri.toString(), fileUri.toString()]),
 			submittedActions,
 			directWriteCalls,
 			directDeleteCalls,
@@ -225,24 +227,33 @@ suite('SessionsAICustomizationWorkspaceService', () => {
 		assert.deepStrictEqual(submittedActions.map(action => (action as { kind: SessionActionKind }).kind), [
 			SessionActionKind.WritePatch,
 			SessionActionKind.RunCommand,
+			SessionActionKind.WritePatch,
 			SessionActionKind.RunCommand,
 		]);
 
-		const deleteAction = submittedActions[0] as {
+		const deleteRepositoryAction = submittedActions[0] as {
 			readonly kind: SessionActionKind.WritePatch;
 			readonly requestedBy: SessionActionRequestSource;
 			readonly files: readonly URI[];
 			readonly operations: readonly { readonly resource: URI; readonly delete?: boolean; readonly useTrash?: boolean }[];
 		};
-		assert.strictEqual(deleteAction.requestedBy, SessionActionRequestSource.User);
-		assert.deepStrictEqual(deleteAction.files.map(resource => resource.toString()), [repoFileUri.toString()]);
-		assert.deepStrictEqual(deleteAction.operations.map(operation => ({ resource: operation.resource.toString(), delete: operation.delete, useTrash: operation.useTrash })), [{ resource: repoFileUri.toString(), delete: true, useTrash: true }]);
+		assert.strictEqual(deleteRepositoryAction.requestedBy, SessionActionRequestSource.User);
+		assert.deepStrictEqual(deleteRepositoryAction.files.map(resource => resource.toString()), [repoFileUri.toString()]);
+		assert.deepStrictEqual(deleteRepositoryAction.operations.map(operation => ({ resource: operation.resource.toString(), delete: operation.delete, useTrash: operation.useTrash })), [{ resource: repoFileUri.toString(), delete: true, useTrash: true }]);
 
 		const commitToRepository = submittedActions[1] as { readonly command: string; readonly args: readonly unknown[] };
 		assert.strictEqual(commitToRepository.command, 'github.copilot.cli.sessions.commitToRepository');
 		assert.deepStrictEqual((commitToRepository.args as readonly { repositoryUri: URI; fileUri: URI }[]).map(arg => ({ repositoryUri: arg.repositoryUri.toString(), fileUri: arg.fileUri.toString() })), [{ repositoryUri: repositoryUri.toString(), fileUri: repoFileUri.toString() }]);
 
-		const commitToWorktree = submittedActions[2] as { readonly command: string; readonly args: readonly unknown[] };
+		const deleteWorktreeAction = submittedActions[2] as {
+			readonly kind: SessionActionKind.WritePatch;
+			readonly files: readonly URI[];
+			readonly operations: readonly { readonly resource: URI; readonly delete?: boolean; readonly useTrash?: boolean }[];
+		};
+		assert.deepStrictEqual(deleteWorktreeAction.files.map(resource => resource.toString()), [fileUri.toString()]);
+		assert.deepStrictEqual(deleteWorktreeAction.operations.map(operation => ({ resource: operation.resource.toString(), delete: operation.delete, useTrash: operation.useTrash })), [{ resource: fileUri.toString(), delete: true, useTrash: true }]);
+
+		const commitToWorktree = submittedActions[3] as { readonly command: string; readonly args: readonly unknown[] };
 		assert.strictEqual(commitToWorktree.command, 'github.copilot.cli.sessions.commitToWorktree');
 		assert.deepStrictEqual((commitToWorktree.args as readonly { worktreeUri: URI; fileUri: URI }[]).map(arg => ({ worktreeUri: arg.worktreeUri.toString(), fileUri: arg.fileUri.toString() })), [{ worktreeUri: worktreeUri.toString(), fileUri: fileUri.toString() }]);
 	});

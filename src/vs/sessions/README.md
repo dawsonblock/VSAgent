@@ -241,7 +241,7 @@ interface ISessionsProvider {
 }
 ```
 
-Provider capabilities are descriptive trust inputs, not authority grants. Sessions uses them to understand where a provider executes (`hostKind`) and whether mediated reads, writes, commands, or worktree operations are even eligible for consideration. Policy, approval, execution, and receipt logging live in a separate Sessions-owned action service.
+Provider capabilities are descriptive trust inputs, not authority grants. Sessions uses them to understand where a provider executes (`hostKind`) and whether mediated reads, writes, commands, git actions, or worktree operations are even eligible for consideration. Capability checks are action-kind specific and fail closed: `readFile`/`searchWorkspace` require `canReadWorkspace`, `writePatch` requires `canWriteWorkspace`, `runCommand` requires `canRunCommands`, `gitStatus`/`gitDiff` require `canMutateGit`, and `openWorktree` requires `canOpenWorktrees`. Policy, approval, execution, and receipt logging live in a separate Sessions-owned action service.
 
 #### Session Data (`ISessionData`)
 

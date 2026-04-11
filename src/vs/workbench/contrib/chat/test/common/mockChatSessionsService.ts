@@ -137,6 +137,16 @@ export class MockChatSessionsService implements IChatSessionsService {
 		return controller?.setChatSessionRead?.(sessionResource, read) ?? false;
 	}
 
+	renameChatSession(sessionResource: URI, title: string): Promise<boolean> {
+		const controller = this.sessionItemControllers.get(sessionResource.scheme)?.controller;
+		return controller?.renameChatSession?.(sessionResource, title) ?? Promise.resolve(false);
+	}
+
+	deleteChatSession(sessionResource: URI): Promise<boolean> {
+		const controller = this.sessionItemControllers.get(sessionResource.scheme)?.controller;
+		return controller?.deleteChatSession?.(sessionResource) ?? Promise.resolve(false);
+	}
+
 	getInProgress(): { chatSessionType: string; count: number }[] {
 		return Array.from(this.inProgress.entries()).map(([chatSessionType, count]) => ({ chatSessionType, count }));
 	}

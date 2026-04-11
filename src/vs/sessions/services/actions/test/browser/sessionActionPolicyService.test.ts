@@ -180,7 +180,7 @@ suite('SessionActionPolicyService', () => {
 		assert.strictEqual(decision.commandRiskClass, CommandRiskClass.GitMutation);
 	});
 
-	test('allows git inspection without git mutation capability', async () => {
+	test('denies git inspection without git mutation capability', async () => {
 		const service = createService();
 		const decision = service.evaluate({
 			action: {
@@ -195,8 +195,31 @@ suite('SessionActionPolicyService', () => {
 			requestedPermissionMode: undefined,
 		});
 
-		assert.strictEqual(decision.mode, 'allow');
-		assert.strictEqual(decision.commandRiskClass, CommandRiskClass.ReadOnly);
+		assert.strictEqual(decision.mode, 'deny');
+		assert.strictEqual(decision.denialReason, SessionActionDenialReason.ProviderCapabilityMissing);
+		assert.strictEqual(decision.commandRiskClass, CommandRiskClass.GitMutation);
+	});
+
+	test('denies worktree actions when provider lacks worktree capability even if git mutation is allowed', async () => {
+		const service = createService({ allowWorktreeMutation: true });
+		const decision = service.evaluate({
+			action: {
+				kind: SessionActionKind.OpenWorktree,
+				requestedBy: SessionActionRequestSource.User,
+				repository,
+				worktreePath: URI.file('/workspace/repo-worktree'),
+				branch: 'feature',
+			},
+			normalizedScope: createScope(),
+			providerCapabilities: createProviderCapabilities({ canMutateGit: true, canOpenWorktrees: false }),
+			executionContext: createExecutionContext(),
+			policy: await service.getPolicySnapshot(createExecutionContext(), [root, repository]),
+			requestedPermissionMode: undefined,
+		});
+
+		assert.strictEqual(decision.mode, 'deny');
+		assert.strictEqual(decision.denialReason, SessionActionDenialReason.ProviderCapabilityMissing);
+		assert.strictEqual(decision.commandRiskClass, CommandRiskClass.GitMutation);
 	});
 
 	test('denies internal Sessions commands when workspace writes are disabled by policy', async () => {

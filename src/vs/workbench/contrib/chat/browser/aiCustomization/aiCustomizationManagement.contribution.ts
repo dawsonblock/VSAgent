@@ -376,13 +376,15 @@ registerAction2(class extends Action2 {
 			// For skills, delete the parent folder (e.g. .github/skills/my-skill/)
 			// since each skill is a folder containing SKILL.md.
 			const deleteTarget = isSkill ? dirname(uri) : uri;
-			const useTrash = fileService.hasCapability(deleteTarget, FileSystemProviderCapabilities.Trash);
-			await fileService.del(deleteTarget, { useTrash, recursive: isSkill });
+			const projectRoot = storage === PromptsStorage.local ? workspaceService.getActiveProjectRoot() : undefined;
+			if (storage === PromptsStorage.local && workspaceService.isSessionsWindow && projectRoot) {
+				await workspaceService.deleteFiles(projectRoot, [deleteTarget]);
+			} else {
+				const useTrash = fileService.hasCapability(deleteTarget, FileSystemProviderCapabilities.Trash);
+				await fileService.del(deleteTarget, { useTrash, recursive: isSkill });
 
-			// Commit the deletion to git (sessions: main repo + worktree)
-			if (storage === PromptsStorage.local) {
-				const projectRoot = workspaceService.getActiveProjectRoot();
-				if (projectRoot) {
+				// Commit the deletion to git (sessions: main repo + worktree)
+				if (storage === PromptsStorage.local && projectRoot) {
 					await workspaceService.deleteFiles(projectRoot, [deleteTarget]);
 				}
 			}

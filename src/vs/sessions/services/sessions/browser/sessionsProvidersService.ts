@@ -7,8 +7,8 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
-import { SessionHostKind } from '../../actions/common/sessionActionTypes.js';
-import { ISessionsProvider, ISessionsProviderCapabilities, ISessionsProviderMetadata } from '../common/sessionsProvider.js';
+import { SessionActionKind, SessionHostKind } from '../../actions/common/sessionActionTypes.js';
+import { getSessionsProviderActionCapabilityDenial, ISessionProviderActionCapabilityDenial, ISessionsProvider, ISessionsProviderCapabilities, ISessionsProviderMetadata } from '../common/sessionsProvider.js';
 
 export const ISessionsProvidersService = createDecorator<ISessionsProvidersService>('sessionsProvidersService');
 
@@ -25,6 +25,7 @@ export interface ISessionsProvidersService {
 	getProviders(): ISessionsProvider[];
 	getProvider<T extends ISessionsProvider>(providerId: string): T | undefined;
 	getProviderCapabilities(providerId: string, sessionId?: string): ISessionsProviderCapabilities | undefined;
+	getActionCapabilityDenial(providerId: string, actionKind: SessionActionKind, sessionId?: string): ISessionProviderActionCapabilityDenial | undefined;
 	getProviderMetadata(providerId: string, sessionId?: string): ISessionsProviderMetadata | undefined;
 	resolveProviderHostKind(providerId: string, sessionId?: string): SessionHostKind | undefined;
 }
@@ -69,6 +70,15 @@ class SessionsProvidersService extends Disposable implements ISessionsProvidersS
 		}
 
 		return provider.getCapabilities?.(sessionId) ?? provider.capabilities;
+	}
+
+	getActionCapabilityDenial(providerId: string, actionKind: SessionActionKind, sessionId?: string): ISessionProviderActionCapabilityDenial | undefined {
+		const capabilities = this.getProviderCapabilities(providerId, sessionId);
+		if (!capabilities) {
+			return undefined;
+		}
+
+		return getSessionsProviderActionCapabilityDenial(actionKind, capabilities);
 	}
 
 	getProviderMetadata(providerId: string, _sessionId?: string): ISessionsProviderMetadata | undefined {
