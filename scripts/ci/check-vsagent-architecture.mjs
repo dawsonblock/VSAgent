@@ -130,7 +130,7 @@ function extractConstEnumMembers(relativePath, enumName) {
 		return [];
 	}
 
-	const members = [...match[1].matchAll(/^\s*([A-Za-z0-9_]+)\s*=\s*'[^']+'/gm)].map(result => result[1]);
+	const members = [...match[1].matchAll(/^\s*([A-Za-z0-9_]+)\s*=\s*['"]([^'"]+)['"]/gm)].map(result => result[1]);
 	if (members.length === 0) {
 		failures.push(`${relativePath}: const enum '${enumName}' does not declare any members.`);
 	}
