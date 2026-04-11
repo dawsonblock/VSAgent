@@ -18,7 +18,7 @@ import { SessionActionService } from '../../browser/sessionActionService.js';
 import { ProviderCapabilitySet } from '../../common/sessionActionPolicy.js';
 import { ISessionActionReceiptService, SessionActionApprovalReceipt } from '../../common/sessionActionReceipts.js';
 import { ISessionActionScopeService, NormalizedSessionActionScope } from '../../common/sessionActionScope.js';
-import { SessionAction, SessionActionDenialReason, SessionActionKind, SessionActionRequestSource, SessionActionResult, SessionActionStatus, SessionCommandLaunchKind, SessionHostKind } from '../../common/sessionActionTypes.js';
+import { SessionAction, SessionActionDenialReason, SessionActionKind, SessionActionRequestSource, SessionActionResult, SessionActionStatus, SessionCommandLaunchKind, SessionHostKind, SessionWriteOperationStatus } from '../../common/sessionActionTypes.js';
 import { ISessionsProvidersService } from '../../../sessions/browser/sessionsProvidersService.js';
 import { IChat, ISession, SessionStatus } from '../../../sessions/common/session.js';
 import { IActiveSession, ISessionsManagementService } from '../../../sessions/common/sessionsManagement.js';
@@ -258,7 +258,9 @@ function createDefaultExecutorResult(action: SessionAction): SessionActionResult
 				status: SessionActionStatus.Executed,
 				advisorySources,
 				resultCount: 1,
-				matches: [{ resource: testFileResource, lineNumber: 1, preview: 'needle' }],
+				matchCount: 1,
+				limitHit: false,
+				matches: [{ resource: testFileResource, lineNumber: 1, lineNumbers: [1], preview: 'needle', matchCount: 1 }],
 				summary: 'Found 1 workspace search match.',
 			};
 		case SessionActionKind.ReadFile:
@@ -269,6 +271,10 @@ function createDefaultExecutorResult(action: SessionAction): SessionActionResult
 				advisorySources,
 				resource: action.resource,
 				contents: 'file contents',
+				encoding: 'utf8',
+				byteSize: 13,
+				lineCount: 1,
+				isPartial: false,
 				summary: 'Read file.',
 			};
 		case SessionActionKind.WritePatch:
@@ -279,6 +285,12 @@ function createDefaultExecutorResult(action: SessionAction): SessionActionResult
 				advisorySources,
 				filesTouched: action.files,
 				applied: true,
+				operationCount: action.operations?.length ?? action.files.length,
+				operations: (action.operations ?? []).map(operation => ({
+					resource: operation.resource,
+					status: SessionWriteOperationStatus.Updated,
+					bytesWritten: typeof operation.contents === 'string' ? operation.contents.length : undefined,
+				})),
 				summary: 'Applied file updates.',
 			};
 		case SessionActionKind.RunCommand: {
@@ -305,7 +317,15 @@ function createDefaultExecutorResult(action: SessionAction): SessionActionResult
 				status: SessionActionStatus.Executed,
 				advisorySources,
 				repository: action.repository,
-				stdout: JSON.stringify({ head: 'main', workingTreeChanges: 1 }, undefined, 2),
+				operation: 'git status',
+				branch: 'main',
+				filesChanged: 1,
+				mergeChanges: 0,
+				indexChanges: 0,
+				workingTreeChanges: 1,
+				untrackedChanges: 0,
+				hasChanges: true,
+				stdout: JSON.stringify({ branch: 'main', filesChanged: 1, workingTreeChanges: 1 }, undefined, 2),
 				stderr: '',
 				summary: 'Inspected git status.',
 			};
@@ -316,6 +336,12 @@ function createDefaultExecutorResult(action: SessionAction): SessionActionResult
 				status: SessionActionStatus.Executed,
 				advisorySources,
 				repository: action.repository,
+				operation: `git diff ${action.ref ?? 'HEAD'}`,
+				ref: action.ref,
+				filesChanged: 1,
+				insertions: 1,
+				deletions: 0,
+				changes: [{ resource: testFileResource, insertions: 1, deletions: 0 }],
 				stdout: `${testFileResource.toString()} (+1/-0)`,
 				stderr: '',
 				summary: 'Inspected git diff.',
@@ -329,6 +355,7 @@ function createDefaultExecutorResult(action: SessionAction): SessionActionResult
 				denialMessage: 'Worktree creation is not yet supported by the Sessions executor bridge.',
 				advisorySources,
 				repository: action.repository,
+				operation: 'git worktree add',
 				worktreePath: action.worktreePath,
 				branch: action.branch,
 				opened: false,

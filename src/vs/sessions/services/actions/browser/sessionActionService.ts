@@ -13,7 +13,7 @@ import { PolicyDenialMetadata, ProviderCapabilitySet, SessionActionPolicyMode } 
 import { ISessionActionReceiptService, SessionActionReceipt, SessionActionReceiptScopeSummary, SessionActionReceiptStatus } from '../common/sessionActionReceipts.js';
 import { ISessionActionScopeService, NormalizedSessionActionScope } from '../common/sessionActionScope.js';
 import { ISessionActionService, ISessionActionActiveChangeEvent, ISessionActionDenialEvent } from '../common/sessionActionService.js';
-import { GitDiffAction, GitStatusAction, OpenWorktreeAction, ReadFileAction, RunCommandAction, SessionAction, SessionActionDenialReason, SessionActionExecutionContext, SessionActionKind, SessionActionResult, SessionActionStatus, SessionHostKind, WritePatchAction } from '../common/sessionActionTypes.js';
+import { GitDiffAction, GitStatusAction, OpenWorktreeAction, ReadFileAction, RunCommandAction, SessionAction, SessionActionDenialReason, SessionActionExecutionContext, SessionActionKind, SessionActionResult, SessionActionStatus, SessionHostKind, SessionWriteOperationStatus, WritePatchAction } from '../common/sessionActionTypes.js';
 import { ISessionsProvidersService } from '../../sessions/browser/sessionsProvidersService.js';
 import { ISession } from '../../sessions/common/session.js';
 import { ISessionActionApprovalService } from './sessionActionApprovalService.js';
@@ -342,11 +342,18 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 			isRegexp: this._getIsRegexp(options.action),
 			maxResults: this._getMaxResults(options.action),
 			resultCount: this._getResultCount(executionResult),
+			matchCount: this._getMatchCount(executionResult),
+			searchMatches: this._getSearchMatches(executionResult),
 			exitCode: this._getExitCode(executionResult),
 			resource: this._getResource(options.action, executionResult),
 			startLine: this._getStartLine(options.action),
 			endLine: this._getEndLine(options.action),
-			ref: this._getRef(options.action),
+			readContents: this._getReadContents(executionResult),
+			readEncoding: this._getReadEncoding(executionResult),
+			readByteSize: this._getReadByteSize(executionResult),
+			readLineCount: this._getReadLineCount(executionResult),
+			readIsPartial: this._getReadIsPartial(executionResult),
+			ref: this._getRef(options.action, executionResult),
 			requestedScope: options.requestedScope,
 			approvedScope: options.approvedScope,
 			requestedAt: options.requestedAt,
@@ -354,12 +361,19 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 			completedAt: options.completedAt,
 			status: options.status,
 			filesTouched: this._getFilesTouched(executionResult, options.approvedScope.files),
+			operation: this._getOperation(options.action, executionResult),
+			operationCount: this._getOperationCount(executionResult),
+			writeOperations: this._getWriteOperations(executionResult),
 			cwd: options.approvedScope.cwd,
 			repositoryPath: this._getRepositoryPath(options.action, options.approvedScope, executionResult),
 			worktreePath: this._getWorktreePath(options.action, options.approvedScope, executionResult),
 			command: this._getCommand(options.action),
 			args: this._getCommandArgs(options.action),
 			branch: this._getBranch(options.action, executionResult),
+			filesChanged: this._getFilesChanged(executionResult),
+			insertions: this._getInsertions(executionResult),
+			deletions: this._getDeletions(executionResult),
+			gitChanges: this._getGitChanges(executionResult),
 			stdout: this._getStdout(executionResult),
 			stderr: this._getStderr(executionResult),
 			approvalSummary: options.approval?.summary,
@@ -391,6 +405,10 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 				return {
 					...base,
 					kind: SessionActionKind.SearchWorkspace,
+					resultCount: 0,
+					matchCount: 0,
+					limitHit: false,
+					matches: [],
 				};
 			case SessionActionKind.ReadFile:
 				return {
@@ -404,6 +422,11 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 					kind: SessionActionKind.WritePatch,
 					filesTouched: (action as WritePatchAction).files,
 					applied: false,
+					operationCount: (action as WritePatchAction).operations?.length ?? (action as WritePatchAction).files.length,
+					operations: ((action as WritePatchAction).operations ?? []).map(operation => ({
+						resource: operation.resource,
+						status: SessionWriteOperationStatus.Skipped,
+					})),
 				};
 			case SessionActionKind.RunCommand:
 				return {
@@ -419,18 +442,22 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 					...base,
 					kind: SessionActionKind.GitStatus,
 					repository: (action as GitStatusAction).repository,
+					operation: 'git status',
 				};
 			case SessionActionKind.GitDiff:
 				return {
 					...base,
 					kind: SessionActionKind.GitDiff,
 					repository: (action as GitDiffAction).repository,
+					operation: this._getDiffOperation((action as GitDiffAction).ref),
+					ref: (action as GitDiffAction).ref,
 				};
 			case SessionActionKind.OpenWorktree:
 				return {
 					...base,
 					kind: SessionActionKind.OpenWorktree,
 					repository: (action as OpenWorktreeAction).repository,
+					operation: 'git worktree add',
 					worktreePath: (action as OpenWorktreeAction).worktreePath,
 					branch: (action as OpenWorktreeAction).branch,
 				};
@@ -475,8 +502,16 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 
 	private _getResultCount(result: SessionActionResult): number | undefined {
 		return result.kind === SessionActionKind.SearchWorkspace
-			? result.resultCount ?? result.matches?.length
+			? result.resultCount
 			: undefined;
+	}
+
+	private _getMatchCount(result: SessionActionResult): number | undefined {
+		return result.kind === SessionActionKind.SearchWorkspace ? result.matchCount : undefined;
+	}
+
+	private _getSearchMatches(result: SessionActionResult) {
+		return result.kind === SessionActionKind.SearchWorkspace ? result.matches : undefined;
 	}
 
 	private _getExitCode(result: SessionActionResult): number | undefined {
@@ -499,8 +534,53 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 		return action.kind === SessionActionKind.ReadFile ? action.endLine : undefined;
 	}
 
-	private _getRef(action: SessionAction): string | undefined {
+	private _getRef(action: SessionAction, result: SessionActionResult): string | undefined {
+		if (result.kind === SessionActionKind.GitDiff) {
+			return result.ref;
+		}
+
 		return action.kind === SessionActionKind.GitDiff ? action.ref : undefined;
+	}
+
+	private _getReadContents(result: SessionActionResult): string | undefined {
+		return result.kind === SessionActionKind.ReadFile ? result.contents : undefined;
+	}
+
+	private _getReadEncoding(result: SessionActionResult): string | undefined {
+		return result.kind === SessionActionKind.ReadFile ? result.encoding : undefined;
+	}
+
+	private _getReadByteSize(result: SessionActionResult): number | undefined {
+		return result.kind === SessionActionKind.ReadFile ? result.byteSize : undefined;
+	}
+
+	private _getReadLineCount(result: SessionActionResult): number | undefined {
+		return result.kind === SessionActionKind.ReadFile ? result.lineCount : undefined;
+	}
+
+	private _getReadIsPartial(result: SessionActionResult): boolean | undefined {
+		return result.kind === SessionActionKind.ReadFile ? result.isPartial : undefined;
+	}
+
+	private _getOperation(action: SessionAction, result: SessionActionResult): string | undefined {
+		switch (result.kind) {
+			case SessionActionKind.GitStatus:
+			case SessionActionKind.GitDiff:
+			case SessionActionKind.OpenWorktree:
+				return result.operation;
+			case SessionActionKind.WritePatch:
+				return 'workspace edit';
+			default:
+				return action.kind === SessionActionKind.WritePatch ? 'workspace edit' : undefined;
+		}
+	}
+
+	private _getOperationCount(result: SessionActionResult): number | undefined {
+		return result.kind === SessionActionKind.WritePatch ? result.operationCount : undefined;
+	}
+
+	private _getWriteOperations(result: SessionActionResult) {
+		return result.kind === SessionActionKind.WritePatch ? result.operations : undefined;
 	}
 
 	private _getStdout(result: SessionActionResult): string | undefined {
@@ -562,6 +642,10 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 	}
 
 	private _getBranch(action: SessionAction, result: SessionActionResult): string | undefined {
+		if (result.kind === SessionActionKind.GitStatus) {
+			return result.branch;
+		}
+
 		if (result.kind === SessionActionKind.OpenWorktree) {
 			return result.branch;
 		}
@@ -572,6 +656,32 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 	private _toCommandLine(action: RunCommandAction): string {
 		const parts = [action.command, ...this._toCommandArgs(action.args)];
 		return parts.join(' ').trim();
+	}
+
+	private _getDiffOperation(ref: string | undefined): string {
+		return `git diff ${ref ?? 'HEAD'}`;
+	}
+
+	private _getFilesChanged(result: SessionActionResult): number | undefined {
+		switch (result.kind) {
+			case SessionActionKind.GitStatus:
+			case SessionActionKind.GitDiff:
+				return result.filesChanged;
+			default:
+				return undefined;
+		}
+	}
+
+	private _getInsertions(result: SessionActionResult): number | undefined {
+		return result.kind === SessionActionKind.GitDiff ? result.insertions : undefined;
+	}
+
+	private _getDeletions(result: SessionActionResult): number | undefined {
+		return result.kind === SessionActionKind.GitDiff ? result.deletions : undefined;
+	}
+
+	private _getGitChanges(result: SessionActionResult) {
+		return result.kind === SessionActionKind.GitDiff ? result.changes : undefined;
 	}
 
 	private _toCommandArgs(args: readonly unknown[] | undefined): readonly string[] {
@@ -614,6 +724,10 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 				return {
 					...base,
 					kind: SessionActionKind.SearchWorkspace,
+					resultCount: 0,
+					matchCount: 0,
+					limitHit: false,
+					matches: [],
 				};
 			case SessionActionKind.ReadFile:
 				return {
@@ -626,6 +740,13 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 					...base,
 					kind: SessionActionKind.WritePatch,
 					filesTouched: (action as WritePatchAction).files,
+					applied: false,
+					operationCount: (action as WritePatchAction).operations?.length ?? (action as WritePatchAction).files.length,
+					operations: ((action as WritePatchAction).operations ?? []).map(operation => ({
+						resource: operation.resource,
+						status: SessionWriteOperationStatus.Skipped,
+						error: message,
+					})),
 				};
 			case SessionActionKind.RunCommand:
 				return {
@@ -641,18 +762,22 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 					...base,
 					kind: SessionActionKind.GitStatus,
 					repository: (action as GitStatusAction).repository,
+					operation: 'git status',
 				};
 			case SessionActionKind.GitDiff:
 				return {
 					...base,
 					kind: SessionActionKind.GitDiff,
 					repository: (action as GitDiffAction).repository,
+					operation: this._getDiffOperation((action as GitDiffAction).ref),
+					ref: (action as GitDiffAction).ref,
 				};
 			case SessionActionKind.OpenWorktree:
 				return {
 					...base,
 					kind: SessionActionKind.OpenWorktree,
 					repository: (action as OpenWorktreeAction).repository,
+					operation: 'git worktree add',
 					worktreePath: (action as OpenWorktreeAction).worktreePath,
 					branch: (action as OpenWorktreeAction).branch,
 				};
@@ -674,6 +799,10 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 				return {
 					...base,
 					kind: SessionActionKind.SearchWorkspace,
+					resultCount: 0,
+					matchCount: 0,
+					limitHit: false,
+					matches: [],
 				};
 			case SessionActionKind.ReadFile:
 				return {
@@ -687,6 +816,12 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 					kind: SessionActionKind.WritePatch,
 					filesTouched: (action as WritePatchAction).files,
 					applied: false,
+					operationCount: (action as WritePatchAction).operations?.length ?? (action as WritePatchAction).files.length,
+					operations: ((action as WritePatchAction).operations ?? []).map(operation => ({
+						resource: operation.resource,
+						status: SessionWriteOperationStatus.Skipped,
+						error: message,
+					})),
 				};
 			case SessionActionKind.RunCommand:
 				return {
@@ -704,6 +839,7 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 					...base,
 					kind: SessionActionKind.GitStatus,
 					repository: (action as GitStatusAction).repository,
+					operation: 'git status',
 					stdout: '',
 					stderr: message,
 				};
@@ -712,6 +848,8 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 					...base,
 					kind: SessionActionKind.GitDiff,
 					repository: (action as GitDiffAction).repository,
+					operation: this._getDiffOperation((action as GitDiffAction).ref),
+					ref: (action as GitDiffAction).ref,
 					stdout: '',
 					stderr: message,
 				};
@@ -720,6 +858,7 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 					...base,
 					kind: SessionActionKind.OpenWorktree,
 					repository: (action as OpenWorktreeAction).repository,
+					operation: 'git worktree add',
 					worktreePath: (action as OpenWorktreeAction).worktreePath,
 					branch: (action as OpenWorktreeAction).branch,
 					opened: false,

@@ -7,7 +7,7 @@ import { Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { PolicyDenialMetadata } from './sessionActionPolicy.js';
-import { NormalizedHostTarget, SessionActionDenialReason, SessionActionKind, SessionHostKind } from './sessionActionTypes.js';
+import { NormalizedHostTarget, SessionActionDenialReason, SessionActionKind, SessionActionSearchMatch, SessionGitChangeSummary, SessionHostKind, SessionWriteOperationResult } from './sessionActionTypes.js';
 
 export const enum SessionActionReceiptStatus {
 	Denied = 'denied',
@@ -55,10 +55,17 @@ export interface SessionActionReceipt {
 	readonly isRegexp?: boolean;
 	readonly maxResults?: number;
 	readonly resultCount?: number;
+	readonly matchCount?: number;
+	readonly searchMatches?: readonly SessionActionSearchMatch[];
 	readonly exitCode?: number;
 	readonly resource?: URI;
 	readonly startLine?: number;
 	readonly endLine?: number;
+	readonly readContents?: string;
+	readonly readEncoding?: string;
+	readonly readByteSize?: number;
+	readonly readLineCount?: number;
+	readonly readIsPartial?: boolean;
 	readonly ref?: string;
 	readonly requestedScope: SessionActionReceiptScopeSummary;
 	readonly approvedScope: SessionActionReceiptScopeSummary;
@@ -67,12 +74,19 @@ export interface SessionActionReceipt {
 	readonly completedAt?: number;
 	readonly status: SessionActionReceiptStatus;
 	readonly filesTouched: readonly URI[];
+	readonly operation?: string;
+	readonly operationCount?: number;
+	readonly writeOperations?: readonly SessionWriteOperationResult[];
 	readonly cwd?: URI;
 	readonly repositoryPath?: URI;
 	readonly worktreePath?: URI;
 	readonly command?: string;
 	readonly args?: readonly string[];
 	readonly branch?: string;
+	readonly filesChanged?: number;
+	readonly insertions?: number;
+	readonly deletions?: number;
+	readonly gitChanges?: readonly SessionGitChangeSummary[];
 	readonly stdout?: string;
 	readonly stderr?: string;
 	readonly approvalSummary?: string;

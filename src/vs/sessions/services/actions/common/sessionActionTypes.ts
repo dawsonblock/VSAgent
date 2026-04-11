@@ -170,6 +170,35 @@ export type SessionAction =
 
 type SessionActionValue = object | string | number | boolean | null | undefined;
 
+export interface SessionActionSearchMatch {
+	readonly resource: URI;
+	readonly lineNumber: number;
+	readonly lineNumbers: readonly number[];
+	readonly preview: string;
+	readonly matchCount: number;
+}
+
+export const enum SessionWriteOperationStatus {
+	Created = 'created',
+	Updated = 'updated',
+	Deleted = 'deleted',
+	Failed = 'failed',
+	Skipped = 'skipped',
+}
+
+export interface SessionWriteOperationResult {
+	readonly resource: URI;
+	readonly status: SessionWriteOperationStatus;
+	readonly bytesWritten?: number;
+	readonly error?: string;
+}
+
+export interface SessionGitChangeSummary {
+	readonly resource: URI;
+	readonly insertions: number;
+	readonly deletions: number;
+}
+
 interface SessionActionResultBase {
 	readonly actionId: string;
 	readonly kind: SessionActionKind;
@@ -184,24 +213,28 @@ interface SessionActionResultBase {
 
 export interface SearchWorkspaceActionResult extends SessionActionResultBase {
 	readonly kind: SessionActionKind.SearchWorkspace;
-	readonly resultCount?: number;
-	readonly matches?: readonly {
-		readonly resource: URI;
-		readonly lineNumber?: number;
-		readonly preview?: string;
-	}[];
+	readonly resultCount: number;
+	readonly matchCount: number;
+	readonly limitHit: boolean;
+	readonly matches: readonly SessionActionSearchMatch[];
 }
 
 export interface ReadFileActionResult extends SessionActionResultBase {
 	readonly kind: SessionActionKind.ReadFile;
 	readonly resource: URI;
 	readonly contents?: string;
+	readonly encoding?: string;
+	readonly byteSize?: number;
+	readonly lineCount?: number;
+	readonly isPartial?: boolean;
 }
 
 export interface WritePatchActionResult extends SessionActionResultBase {
 	readonly kind: SessionActionKind.WritePatch;
 	readonly filesTouched: readonly URI[];
-	readonly applied?: boolean;
+	readonly applied: boolean;
+	readonly operationCount: number;
+	readonly operations: readonly SessionWriteOperationResult[];
 }
 
 export interface RunCommandActionResult extends SessionActionResultBase {
@@ -216,9 +249,31 @@ export interface RunCommandActionResult extends SessionActionResultBase {
 	readonly value?: SessionActionValue;
 }
 
-export interface GitActionResult extends SessionActionResultBase {
-	readonly kind: SessionActionKind.GitStatus | SessionActionKind.GitDiff;
+export interface GitStatusActionResult extends SessionActionResultBase {
+	readonly kind: SessionActionKind.GitStatus;
 	readonly repository: URI;
+	readonly operation: string;
+	readonly branch?: string;
+	readonly filesChanged?: number;
+	readonly mergeChanges?: number;
+	readonly indexChanges?: number;
+	readonly workingTreeChanges?: number;
+	readonly untrackedChanges?: number;
+	readonly hasChanges?: boolean;
+	readonly stdout?: string;
+	readonly stderr?: string;
+	readonly value?: SessionActionValue;
+}
+
+export interface GitDiffActionResult extends SessionActionResultBase {
+	readonly kind: SessionActionKind.GitDiff;
+	readonly repository: URI;
+	readonly operation: string;
+	readonly ref?: string;
+	readonly filesChanged?: number;
+	readonly insertions?: number;
+	readonly deletions?: number;
+	readonly changes?: readonly SessionGitChangeSummary[];
 	readonly stdout?: string;
 	readonly stderr?: string;
 	readonly value?: SessionActionValue;
@@ -227,6 +282,7 @@ export interface GitActionResult extends SessionActionResultBase {
 export interface OpenWorktreeActionResult extends SessionActionResultBase {
 	readonly kind: SessionActionKind.OpenWorktree;
 	readonly repository: URI;
+	readonly operation: string;
 	readonly worktreePath?: URI;
 	readonly branch?: string;
 	readonly opened?: boolean;
@@ -240,5 +296,6 @@ export type SessionActionResult =
 	| ReadFileActionResult
 	| WritePatchActionResult
 	| RunCommandActionResult
-	| GitActionResult
+	| GitStatusActionResult
+	| GitDiffActionResult
 	| OpenWorktreeActionResult;
