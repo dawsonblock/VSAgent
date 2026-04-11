@@ -74,6 +74,14 @@ src/vs/sessions/
 │   ├── sessions.ts
 │   ├── sessions.html
 │   └── sessions-dev.html
+├── services/                           ← Sessions runtime control services
+│   ├── actions/                        ← Mediated action policy, execution, approvals, receipts
+│   ├── autonomy/                       ← Autonomy mode contracts and bounded execution policy
+│   ├── configuration/browser/          ← Configuration service overrides
+│   ├── planning/                       ← Deterministic planning and plan validation services
+│   ├── sessions/browser/               ← Sessions management services
+│   ├── title/                          ← Sessions title services
+│   └── workspace/                      ← Workspace service overrides
 ├── contrib/                            ← Feature contributions
 │   ├── accountMenu/browser/            ← Account menu widget and sidebar footer
 │   │   └── account.contribution.ts

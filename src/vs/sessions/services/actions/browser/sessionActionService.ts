@@ -479,6 +479,10 @@ export class SessionActionService extends Disposable implements ISessionActionSe
 			: undefined;
 	}
 
+	private _getExitCode(result: SessionActionResult): number | undefined {
+		return result.kind === SessionActionKind.RunCommand ? result.exitCode : undefined;
+	}
+
 	private _getResource(action: SessionAction, result: SessionActionResult): URI | undefined {
 		if (result.kind === SessionActionKind.ReadFile) {
 			return result.resource;
