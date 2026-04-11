@@ -50,6 +50,16 @@ export interface SessionActionReceipt {
 	readonly hostTarget: NormalizedHostTarget;
 	readonly actionId: string;
 	readonly actionKind: SessionActionKind;
+	readonly query?: string;
+	readonly includePattern?: string;
+	readonly isRegexp?: boolean;
+	readonly maxResults?: number;
+	readonly resultCount?: number;
+	readonly exitCode?: number;
+	readonly resource?: URI;
+	readonly startLine?: number;
+	readonly endLine?: number;
+	readonly ref?: string;
 	readonly requestedScope: SessionActionReceiptScopeSummary;
 	readonly approvedScope: SessionActionReceiptScopeSummary;
 	readonly requestedAt: number;

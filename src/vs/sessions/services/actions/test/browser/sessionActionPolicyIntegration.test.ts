@@ -161,4 +161,33 @@ suite('SessionActionPolicyIntegration', () => {
 		const decision = await evaluate(SessionActionKind.GitStatus, root, createProviderCapabilities({ requiresApprovalForGit: false }));
 		assert.notStrictEqual(decision.mode, SessionActionPolicyMode.Deny);
 	});
+
+	test('write and command permissions stay denied until each policy flag is explicitly enabled', async () => {
+		const root = URI.file('/workspace/repo');
+		const policyUri = joinPath(root, '.vscode', 'vsagent-policy.json');
+		const permissiveCapabilities = createProviderCapabilities({ requiresApprovalForWrites: false, requiresApprovalForCommands: false });
+
+		await fileService.createFile(policyUri, VSBuffer.fromString(JSON.stringify({ allowWorkspaceWrites: true })), { overwrite: true });
+
+		assert.notStrictEqual((await evaluate(SessionActionKind.WritePatch, root, permissiveCapabilities)).mode, SessionActionPolicyMode.Deny);
+		assert.strictEqual((await evaluate(SessionActionKind.RunCommand, root, permissiveCapabilities)).mode, SessionActionPolicyMode.Deny);
+
+		const changePromise = Event.toPromise(configService.onDidChangePolicy);
+		await fileService.writeFile(policyUri, VSBuffer.fromString(JSON.stringify({ allowWorkspaceWrites: true, allowCommands: true })));
+		await changePromise;
+
+		assert.notStrictEqual((await evaluate(SessionActionKind.RunCommand, root, permissiveCapabilities)).mode, SessionActionPolicyMode.Deny);
+	});
+
+	test('git policy enables read-only git actions while worktrees remain denied by default', async () => {
+		const root = URI.file('/workspace/repo');
+		const policyUri = joinPath(root, '.vscode', 'vsagent-policy.json');
+		const permissiveCapabilities = createProviderCapabilities({ canOpenWorktrees: true, requiresApprovalForGit: false, requiresApprovalForWorktreeActions: false });
+
+		await fileService.createFile(policyUri, VSBuffer.fromString(JSON.stringify({ allowGitMutation: true })), { overwrite: true });
+
+		assert.notStrictEqual((await evaluate(SessionActionKind.GitStatus, root, permissiveCapabilities)).mode, SessionActionPolicyMode.Deny);
+		assert.notStrictEqual((await evaluate(SessionActionKind.GitDiff, root, permissiveCapabilities)).mode, SessionActionPolicyMode.Deny);
+		assert.strictEqual((await evaluate(SessionActionKind.OpenWorktree, root, permissiveCapabilities)).mode, SessionActionPolicyMode.Deny);
+	});
 });

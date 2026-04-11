@@ -168,6 +168,8 @@ suite('SessionsAgentHostToolConfirmationResolverService', () => {
 					kind: SessionActionKind.RunCommand,
 					status: SessionActionStatus.Denied,
 					advisorySources: [],
+					command: (action as Extract<SessionAction, { kind: SessionActionKind.RunCommand }>).command,
+					args: [],
 					commandLine: (action as Extract<SessionAction, { kind: SessionActionKind.RunCommand }>).command,
 					denialMessage: 'Denied by Sessions approval.',
 				};

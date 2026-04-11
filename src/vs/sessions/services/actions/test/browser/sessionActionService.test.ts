@@ -8,12 +8,15 @@ import { Codicon } from '../../../../../base/common/codicons.js';
 import { Event } from '../../../../../base/common/event.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { observableValue } from '../../../../../base/common/observable.js';
+import { extUri } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { NullLogService } from '../../../../../platform/log/common/log.js';
+import { IUriIdentityService } from '../../../../../platform/uriIdentity/common/uriIdentity.js';
 import { getDefaultSessionPolicySnapshot, ISessionActionPolicyConfigService } from '../../browser/sessionActionPolicyConfigService.js';
 import { SessionActionPolicyService } from '../../browser/sessionActionPolicyService.js';
 import { SessionActionReceiptService } from '../../browser/sessionActionReceiptService.js';
+import { SessionActionScopeService } from '../../browser/sessionActionScopeService.js';
 import { SessionActionService } from '../../browser/sessionActionService.js';
 import { SessionActionApprovalDecision, ISessionActionApprovalService } from '../../browser/sessionActionApprovalService.js';
 import { ISessionActionExecutorBridge } from '../../browser/sessionActionExecutorBridge.js';
@@ -24,6 +27,7 @@ import { RunCommandAction, SessionAction, SessionActionDenialReason, SessionActi
 import { ISessionsProvidersService } from '../../../sessions/browser/sessionsProvidersService.js';
 import { getSessionsProviderActionCapabilityDenial } from '../../../sessions/common/sessionsProvider.js';
 import { ISession, SessionStatus } from '../../../sessions/common/session.js';
+import { createExecutionContext, createProviderCapabilities as createActionProviderCapabilities, testProviderId, testRepositoryRoot, testSessionId, testWorktreeRoot } from './sessionActionTestUtils.js';
 
 suite('SessionActionService', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite() as Pick<DisposableStore, 'add'>;
@@ -458,5 +462,105 @@ suite('SessionActionService', () => {
 		} finally {
 			Date.now = originalDateNow;
 		}
+	});
+});
+
+suite('SessionActionScopeService', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	function createUriIdentityService(): IUriIdentityService {
+		return {
+			_serviceBrand: undefined,
+			extUri,
+			asCanonicalUri: uri => uri,
+		};
+	}
+
+	function createScopeService(): SessionActionScopeService {
+		return new SessionActionScopeService(createUriIdentityService());
+	}
+
+	test('denies secret-like file paths such as .ssh', () => {
+		const resolution = createScopeService().resolveScope({
+			kind: SessionActionKind.ReadFile,
+			requestedBy: SessionActionRequestSource.User,
+			resource: URI.file('/workspace/repo/.ssh/id_rsa'),
+		}, createExecutionContext(testRepositoryRoot, testProviderId, testSessionId), createActionProviderCapabilities());
+
+		assert.strictEqual(resolution.denialReason, SessionActionDenialReason.SecretPath);
+		assert.ok(resolution.message?.includes('id_rsa'));
+	});
+
+	test('denies secret-like command cwd values such as .env.local', () => {
+		const resolution = createScopeService().resolveScope({
+			kind: SessionActionKind.RunCommand,
+			requestedBy: SessionActionRequestSource.User,
+			command: 'npm',
+			args: ['test'],
+			cwd: URI.file('/workspace/repo/.env.local'),
+			launchKind: SessionCommandLaunchKind.Command,
+		}, createExecutionContext(testRepositoryRoot, testProviderId, testSessionId), createActionProviderCapabilities());
+
+		assert.strictEqual(resolution.denialReason, SessionActionDenialReason.SecretPath);
+		assert.ok(resolution.message?.includes('.env.local'));
+	});
+
+	test('denies file targets that escape the active session roots', () => {
+		const resolution = createScopeService().resolveScope({
+			kind: SessionActionKind.ReadFile,
+			requestedBy: SessionActionRequestSource.User,
+			resource: URI.file('/outside/file.txt'),
+		}, createExecutionContext(testRepositoryRoot, testProviderId, testSessionId), createActionProviderCapabilities());
+
+		assert.strictEqual(resolution.denialReason, SessionActionDenialReason.RootEscape);
+		assert.ok(resolution.message?.includes('/outside/file.txt'));
+	});
+
+	test('denies requested worktree roots that do not match the active session worktree', () => {
+		const resolution = createScopeService().resolveScope({
+			kind: SessionActionKind.ReadFile,
+			requestedBy: SessionActionRequestSource.User,
+			resource: URI.file('/workspace/repo/file.txt'),
+			scope: {
+				worktreeRoot: testWorktreeRoot,
+			},
+		}, createExecutionContext(testRepositoryRoot, testProviderId, testSessionId), createActionProviderCapabilities());
+
+		assert.strictEqual(resolution.denialReason, SessionActionDenialReason.WorktreeMismatch);
+		assert.ok(resolution.message?.includes('worktree root'));
+	});
+
+	test('denies host-kind mismatches between the requested scope and provider host', () => {
+		const resolution = createScopeService().resolveScope({
+			kind: SessionActionKind.SearchWorkspace,
+			requestedBy: SessionActionRequestSource.User,
+			query: 'needle',
+			scope: {
+				hostTarget: {
+					kind: SessionHostKind.Remote,
+				},
+			},
+		}, createExecutionContext(testRepositoryRoot, testProviderId, testSessionId), createActionProviderCapabilities());
+
+		assert.strictEqual(resolution.denialReason, SessionActionDenialReason.HostTargetMismatch);
+		assert.ok(resolution.message?.includes('host kind'));
+	});
+
+	test('denies host-authority mismatches between the requested scope and provider host', () => {
+		const remoteRoot = URI.from({ scheme: 'vscode-agent-host', authority: 'remote-host', path: '/workspace/repo' });
+		const resolution = createScopeService().resolveScope({
+			kind: SessionActionKind.SearchWorkspace,
+			requestedBy: SessionActionRequestSource.User,
+			query: 'needle',
+			scope: {
+				hostTarget: {
+					kind: SessionHostKind.Remote,
+					authority: 'other-host',
+				},
+			},
+		}, createExecutionContext(remoteRoot, testProviderId, testSessionId, SessionHostKind.Remote), createActionProviderCapabilities({ hostKind: SessionHostKind.Remote }));
+
+		assert.strictEqual(resolution.denialReason, SessionActionDenialReason.HostTargetMismatch);
+		assert.ok(resolution.message?.includes('host authority'));
 	});
 });

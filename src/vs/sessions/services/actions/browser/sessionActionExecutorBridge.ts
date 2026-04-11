@@ -132,6 +132,7 @@ export class SessionActionExecutorBridge implements ISessionActionExecutorBridge
 			kind: SessionActionKind.SearchWorkspace,
 			status: SessionActionStatus.Executed,
 			advisorySources: action.advisorySources ?? [],
+			resultCount: limitedMatches.length,
 			matches: limitedMatches,
 			summary: localize('sessionActionExecutorBridge.searchWorkspaceSummary', "Found {0} workspace search match(es).", limitedMatches.length),
 		};
@@ -165,29 +166,51 @@ export class SessionActionExecutorBridge implements ISessionActionExecutorBridge
 			};
 		}
 
-		for (const operation of action.operations) {
-			if (operation.delete) {
-				await this._fileService.del(operation.resource, {
-					recursive: true,
-					useTrash: operation.useTrash ?? true,
-				});
-				continue;
+		const filesTouched: URI[] = [];
+
+		try {
+			for (const operation of action.operations) {
+				if (operation.delete) {
+					await this._fileService.del(operation.resource, {
+						recursive: true,
+						useTrash: operation.useTrash ?? true,
+					});
+					filesTouched.push(operation.resource);
+					continue;
+				}
+
+				if (typeof operation.contents === 'string') {
+					await this._fileService.writeFile(operation.resource, VSBuffer.fromString(operation.contents));
+					filesTouched.push(operation.resource);
+				}
 			}
 
-			if (typeof operation.contents === 'string') {
-				await this._fileService.writeFile(operation.resource, VSBuffer.fromString(operation.contents));
-			}
+			return {
+				actionId: action.id ?? 'unknown',
+				kind: SessionActionKind.WritePatch,
+				status: SessionActionStatus.Executed,
+				advisorySources: action.advisorySources ?? [],
+				filesTouched,
+				applied: true,
+				summary: localize('sessionActionExecutorBridge.writePatchSummary', "Applied file updates for {0} target(s).", action.operations.length),
+			};
+		} catch (error) {
+			const message = error instanceof Error
+				? error.message
+				: localize('sessionActionExecutorBridge.writePatchUnknownError', "an unknown error occurred while applying file updates");
+
+			return {
+				actionId: action.id ?? 'unknown',
+				kind: SessionActionKind.WritePatch,
+				status: SessionActionStatus.Failed,
+				denialReason: SessionActionDenialReason.ExecutionFailed,
+				denialMessage: localize('sessionActionExecutorBridge.writePatchFailedError', "Could not apply file updates because {0}", message),
+				advisorySources: action.advisorySources ?? [],
+				filesTouched,
+				applied: false,
+				summary: localize('sessionActionExecutorBridge.writePatchFailedSummary', "Could not apply file updates."),
+			};
 		}
-
-		return {
-			actionId: action.id ?? 'unknown',
-			kind: SessionActionKind.WritePatch,
-			status: SessionActionStatus.Executed,
-			advisorySources: action.advisorySources ?? [],
-			filesTouched: action.operations.map(operation => operation.resource),
-			applied: true,
-			summary: localize('sessionActionExecutorBridge.writePatchSummary', "Applied file updates for {0} target(s).", action.operations.length),
-		};
 	}
 
 	private async _runCommand(action: RunCommandAction, scope: NormalizedSessionActionScope): Promise<SessionActionResult> {
@@ -230,6 +253,8 @@ export class SessionActionExecutorBridge implements ISessionActionExecutorBridge
 		}
 
 		try {
+			// ICommandService returns the command's value, not shell stdout or stderr, so
+			// Sessions keeps task and terminal launch kinds fail-closed above.
 			const value = await this._commandService.executeCommand(action.command, ...(action.args ?? []));
 			const stdout = this._serializeValue(value) ?? '';
 			return {

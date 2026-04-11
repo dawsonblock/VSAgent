@@ -18,10 +18,10 @@ import { SessionActionService } from '../../browser/sessionActionService.js';
 import { ProviderCapabilitySet } from '../../common/sessionActionPolicy.js';
 import { ISessionActionReceiptService, SessionActionApprovalReceipt } from '../../common/sessionActionReceipts.js';
 import { ISessionActionScopeService, NormalizedSessionActionScope } from '../../common/sessionActionScope.js';
-import { GitDiffAction, GitStatusAction, OpenWorktreeAction, ReadFileAction, RunCommandAction, SearchWorkspaceAction, SessionAction, SessionActionDenialReason, SessionActionKind, SessionActionRequestSource, SessionActionResult, SessionActionStatus, SessionCommandLaunchKind, SessionHostKind, WritePatchAction } from '../../common/sessionActionTypes.js';
+import { SessionAction, SessionActionDenialReason, SessionActionKind, SessionActionRequestSource, SessionActionResult, SessionActionStatus, SessionCommandLaunchKind, SessionHostKind } from '../../common/sessionActionTypes.js';
 import { ISessionsProvidersService } from '../../../sessions/browser/sessionsProvidersService.js';
 import { IChat, ISession, SessionStatus } from '../../../sessions/common/session.js';
-import { IActiveSession } from '../../../sessions/common/sessionsManagement.js';
+import { IActiveSession, ISessionsManagementService } from '../../../sessions/common/sessionsManagement.js';
 import { getSessionsProviderActionCapabilityDenial } from '../../../sessions/common/sessionsProvider.js';
 
 export const testWorkspaceRoot = URI.file('/workspace');
@@ -160,6 +160,36 @@ export function createActiveSession(providerId = testProviderId, resource = URI.
 	return activeSession;
 }
 
+export function createSessionsManagementServiceStub(activeSession: IActiveSession | undefined): ISessionsManagementService {
+	return {
+		_serviceBrand: undefined,
+		getSessions: () => activeSession ? [activeSession] : [],
+		getSession: resource => activeSession && activeSession.resource.toString() === resource.toString() ? activeSession : undefined,
+		getSessionTypes: () => [],
+		getAllSessionTypes: () => [],
+		onDidChangeSessionTypes: Event.None,
+		onDidChangeSessions: Event.None,
+		activeSession: observableValue('activeSession', activeSession),
+		activeProviderId: observableValue('activeProviderId', activeSession?.providerId),
+		setActiveProvider: () => { },
+		openSession: async () => { },
+		openChat: async () => { },
+		openNewSessionView: () => { },
+		createNewSession: () => createSession(activeSession?.providerId ?? testProviderId, activeSession?.sessionId ?? testSessionId),
+		unsetNewSession: () => { },
+		sendAndCreateChat: async () => { },
+		setSessionType: async () => { },
+		submitAction: async () => { throw new Error('Not implemented in test'); },
+		getActionReceipts: () => [],
+		archiveSession: async () => { },
+		unarchiveSession: async () => { },
+		deleteSession: async () => { },
+		deleteChat: async () => { },
+		renameChat: async () => { },
+		setRead: () => { },
+	};
+}
+
 export function createActionForKind(kind: SessionActionKind, requestedBy = SessionActionRequestSource.User): SessionAction {
 	switch (kind) {
 		case SessionActionKind.SearchWorkspace:
@@ -227,6 +257,7 @@ function createDefaultExecutorResult(action: SessionAction): SessionActionResult
 				kind: action.kind,
 				status: SessionActionStatus.Executed,
 				advisorySources,
+				resultCount: 1,
 				matches: [{ resource: testFileResource, lineNumber: 1, preview: 'needle' }],
 				summary: 'Found 1 workspace search match.',
 			};
@@ -325,34 +356,37 @@ export function createSessionActionHarness(disposables: Pick<DisposableStore, 'a
 	let approvalCalls = 0;
 	let executeCalls = 0;
 	let lastExecutedAction: SessionAction | undefined;
+	const provider = {
+		id: providerId,
+		label: 'Provider',
+		icon: Codicon.account,
+		sessionTypes: [],
+		capabilities: providerCapabilities,
+		browseActions: [],
+		resolveWorkspace: () => session.workspace.get()!,
+		getSessions: () => [session],
+		onDidChangeSessions: Event.None,
+		createNewSession: () => session,
+		setSessionType: () => session,
+		getSessionTypes: () => [],
+		renameChat: async () => { },
+		setModel: () => { },
+		archiveSession: async () => { },
+		unarchiveSession: async () => { },
+		deleteSession: async () => { },
+		deleteChat: async () => { },
+		setRead: () => { },
+		sendAndCreateChat: async () => session,
+	};
 
 	const providersService: ISessionsProvidersService = {
 		_serviceBrand: undefined,
 		onDidChangeProviders: Event.None,
 		registerProvider: () => { throw new Error('Not implemented in test'); },
 		getProviders: () => [],
-		getProvider: (candidateProviderId: string) => candidateProviderId === providerId ? {
-			id: providerId,
-			label: 'Provider',
-			icon: Codicon.account,
-			sessionTypes: [],
-			capabilities: providerCapabilities,
-			browseActions: [],
-			resolveWorkspace: () => session.workspace.get()!,
-			getSessions: () => [session],
-			onDidChangeSessions: Event.None,
-			createNewSession: () => session,
-			setSessionType: () => session,
-			getSessionTypes: () => [],
-			renameChat: async () => { },
-			setModel: () => { },
-			archiveSession: async () => { },
-			unarchiveSession: async () => { },
-			deleteSession: async () => { },
-			deleteChat: async () => { },
-			setRead: () => { },
-			sendAndCreateChat: async () => session,
-		} : undefined,
+		getProvider<T>(candidateProviderId: string): T | undefined {
+			return candidateProviderId === providerId ? provider as T : undefined;
+		},
 		getProviderCapabilities: (candidateProviderId: string) => candidateProviderId === providerId ? providerCapabilities : undefined,
 		getActionCapabilityDenial: (candidateProviderId: string, actionKind: SessionActionKind) => candidateProviderId === providerId ? getSessionsProviderActionCapabilityDenial(actionKind, providerCapabilities) : undefined,
 		getProviderMetadata: () => undefined,

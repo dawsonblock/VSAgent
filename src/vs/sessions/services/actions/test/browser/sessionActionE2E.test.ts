@@ -12,10 +12,9 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/tes
 import { AgentHostToolConfirmationSource } from '../../../../../workbench/contrib/chat/browser/agentSessions/agentHost/agentHostToolConfirmationResolverService.js';
 import { IChatToolInvocation, ToolConfirmKind } from '../../../../../workbench/contrib/chat/common/chatService/chatService.js';
 import { SessionsAgentHostToolConfirmationResolverService } from '../../browser/agentHostToolConfirmationResolverService.js';
-import { SessionActionReceiptStatus } from '../../common/sessionActionReceipts.js';
+import { SessionActionReceipt, SessionActionReceiptStatus } from '../../common/sessionActionReceipts.js';
 import { SessionActionDenialReason, SessionActionKind, SessionActionStatus } from '../../common/sessionActionTypes.js';
-import { ISessionsManagementService } from '../../../sessions/common/sessionsManagement.js';
-import { createActionForKind, createActiveSession, createSessionActionHarness, testProviderId, testRepositoryRoot, testSessionId } from './sessionActionTestUtils.js';
+import { SessionActionHarnessOptions, createActionForKind, createActiveSession, createSessionActionHarness, createSessionsManagementServiceStub, testFileResource, testProviderId, testRepositoryRoot, testSessionId, testWorktreeRoot } from './sessionActionTestUtils.js';
 
 function createInvocation(toolId: string, parameters: unknown, rawInput?: string): IChatToolInvocation {
 	return {
@@ -123,6 +122,184 @@ suite('SessionActionE2E', () => {
 		assert.strictEqual(receipt.approvalFingerprint, 'fp-approved');
 	});
 
+	test('non-command action kinds produce auditable receipts through the full Sessions action spine', async () => {
+		interface NonCommandCase {
+			readonly kind: SessionActionKind;
+			readonly options?: Pick<SessionActionHarnessOptions, 'policyOverrides' | 'providerCapabilityOverrides'>;
+			readonly expectedStatus: SessionActionStatus;
+			readonly expectedReceiptStatus: SessionActionReceiptStatus;
+			readonly assertReceipt: (receipt: SessionActionReceipt) => void;
+		}
+
+		const cases: readonly NonCommandCase[] = [
+			{
+				kind: SessionActionKind.SearchWorkspace,
+				expectedStatus: SessionActionStatus.Executed,
+				expectedReceiptStatus: SessionActionReceiptStatus.Executed,
+				assertReceipt: receipt => {
+					assert.strictEqual(receipt.query, 'needle');
+					assert.strictEqual(receipt.maxResults, 5);
+					assert.strictEqual(receipt.executionSummary, 'Found 1 workspace search match.');
+				},
+			},
+			{
+				kind: SessionActionKind.ReadFile,
+				expectedStatus: SessionActionStatus.Executed,
+				expectedReceiptStatus: SessionActionReceiptStatus.Executed,
+				assertReceipt: receipt => {
+					assert.strictEqual(receipt.resource?.toString(), testFileResource.toString());
+					assert.strictEqual(receipt.executionSummary, 'Read file.');
+				},
+			},
+			{
+				kind: SessionActionKind.WritePatch,
+				options: { policyOverrides: { allowWorkspaceWrites: true } },
+				expectedStatus: SessionActionStatus.Executed,
+				expectedReceiptStatus: SessionActionReceiptStatus.Executed,
+				assertReceipt: receipt => {
+					assert.deepStrictEqual(receipt.filesTouched.map(file => file.toString()), [testFileResource.toString()]);
+					assert.strictEqual(receipt.executionSummary, 'Applied file updates.');
+				},
+			},
+			{
+				kind: SessionActionKind.GitStatus,
+				options: { policyOverrides: { allowGitMutation: true } },
+				expectedStatus: SessionActionStatus.Executed,
+				expectedReceiptStatus: SessionActionReceiptStatus.Executed,
+				assertReceipt: receipt => {
+					assert.strictEqual(receipt.repositoryPath?.toString(), testRepositoryRoot.toString());
+					assert.ok(receipt.stdout?.includes('"head": "main"'));
+				},
+			},
+			{
+				kind: SessionActionKind.GitDiff,
+				options: { policyOverrides: { allowGitMutation: true } },
+				expectedStatus: SessionActionStatus.Executed,
+				expectedReceiptStatus: SessionActionReceiptStatus.Executed,
+				assertReceipt: receipt => {
+					assert.strictEqual(receipt.repositoryPath?.toString(), testRepositoryRoot.toString());
+					assert.strictEqual(receipt.ref, 'HEAD~1');
+					assert.ok(receipt.stdout?.includes(testFileResource.toString()));
+				},
+			},
+			{
+				kind: SessionActionKind.OpenWorktree,
+				options: {
+					policyOverrides: { allowWorktreeMutation: true },
+					providerCapabilityOverrides: { canOpenWorktrees: true, requiresApprovalForWorktreeActions: false },
+				},
+				expectedStatus: SessionActionStatus.Failed,
+				expectedReceiptStatus: SessionActionReceiptStatus.Failed,
+				assertReceipt: receipt => {
+					assert.strictEqual(receipt.denialReason, SessionActionDenialReason.UnsupportedAction);
+					assert.strictEqual(receipt.worktreePath?.toString(), testWorktreeRoot.toString());
+					assert.strictEqual(receipt.branch, 'feature');
+					assert.ok(receipt.stderr?.includes('not yet supported'));
+				},
+			},
+		];
+
+		for (const testCase of cases) {
+			const harness = createSessionActionHarness(disposables, testCase.options);
+			const result = await harness.service.submitAction(testSessionId, testProviderId, createActionForKind(testCase.kind));
+			const receipt = harness.service.getReceiptsForSession(testSessionId)[0];
+
+			assert.strictEqual(result.status, testCase.expectedStatus, `Unexpected action result for ${testCase.kind}.`);
+			assert.strictEqual(receipt.status, testCase.expectedReceiptStatus, `Unexpected receipt status for ${testCase.kind}.`);
+			assert.strictEqual(receipt.actionKind, testCase.kind);
+			assert.strictEqual(receipt.approvalSummary, 'Approved.');
+			testCase.assertReceipt(receipt);
+		}
+	});
+
+	test('searchWorkspace preserves receipt query and result summary', async () => {
+		const harness = createSessionActionHarness(disposables);
+
+		const result = await harness.service.submitAction(testSessionId, testProviderId, createActionForKind(SessionActionKind.SearchWorkspace));
+		const receipt = harness.service.getReceiptsForSession(testSessionId)[0];
+
+		assert.strictEqual(result.status, SessionActionStatus.Executed);
+		assert.strictEqual(receipt.resultCount, 1);
+		assert.strictEqual(receipt.query, 'needle');
+		assert.strictEqual(receipt.executionSummary, 'Found 1 workspace search match.');
+	});
+
+	test('readFile preserves the requested resource in the final receipt', async () => {
+		const harness = createSessionActionHarness(disposables);
+
+		const result = await harness.service.submitAction(testSessionId, testProviderId, createActionForKind(SessionActionKind.ReadFile));
+		const receipt = harness.service.getReceiptsForSession(testSessionId)[0];
+
+		assert.strictEqual(result.status, SessionActionStatus.Executed);
+		assert.strictEqual(receipt.resource?.toString(), testFileResource.toString());
+		assert.strictEqual(receipt.executionSummary, 'Read file.');
+	});
+
+	test('writePatch approval flow preserves touched files and approval metadata in the receipt', async () => {
+		const harness = createSessionActionHarness(disposables, {
+			policyOverrides: { allowWorkspaceWrites: true },
+			approval: {
+				required: true,
+				granted: true,
+				source: 'dialog',
+				summary: 'Approved write approval.',
+				fingerprint: 'fp-write-approved',
+			},
+		});
+
+		const result = await harness.service.submitAction(testSessionId, testProviderId, createActionForKind(SessionActionKind.WritePatch));
+		const receipt = harness.service.getReceiptsForSession(testSessionId)[0];
+
+		assert.strictEqual(result.status, SessionActionStatus.Executed);
+		assert.strictEqual(receipt.approvalSummary, 'Approved write approval.');
+		assert.deepStrictEqual(receipt.filesTouched.map(file => file.toString()), [testFileResource.toString()]);
+		assert.strictEqual(receipt.executionSummary, 'Applied file updates.');
+	});
+
+	test('git actions stay denied until policy allows them and preserve repository metadata once approved', async () => {
+		const deniedHarness = createSessionActionHarness(disposables);
+		const deniedResult = await deniedHarness.service.submitAction(testSessionId, testProviderId, createActionForKind(SessionActionKind.GitStatus));
+		const deniedReceipt = deniedHarness.service.getReceiptsForSession(testSessionId)[0];
+
+		assert.strictEqual(deniedResult.status, SessionActionStatus.Denied);
+		assert.strictEqual(deniedReceipt.denialReason, SessionActionDenialReason.PolicyDenied);
+
+		const allowedHarness = createSessionActionHarness(disposables, {
+			policyOverrides: { allowGitMutation: true },
+		});
+		const allowedResult = await allowedHarness.service.submitAction(testSessionId, testProviderId, createActionForKind(SessionActionKind.GitDiff));
+		const allowedReceipt = allowedHarness.service.getReceiptsForSession(testSessionId)[0];
+
+		assert.strictEqual(allowedResult.status, SessionActionStatus.Executed);
+		assert.strictEqual(allowedReceipt.ref, 'HEAD~1');
+		assert.strictEqual(allowedReceipt.repositoryPath?.toString(), testRepositoryRoot.toString());
+		assert.ok(allowedReceipt.stdout?.includes(testFileResource.toString()));
+	});
+
+	test('openWorktree is denied when capability is missing and remains auditable when allowed', async () => {
+		const deniedHarness = createSessionActionHarness(disposables, {
+			policyOverrides: { allowWorktreeMutation: true },
+			providerCapabilityOverrides: { canOpenWorktrees: false },
+		});
+		const deniedResult = await deniedHarness.service.submitAction(testSessionId, testProviderId, createActionForKind(SessionActionKind.OpenWorktree));
+
+		assert.strictEqual(deniedResult.status, SessionActionStatus.Denied);
+		assert.strictEqual(deniedResult.denialReason, SessionActionDenialReason.ProviderCapabilityMissing);
+		assert.strictEqual(deniedHarness.getExecuteCalls(), 0);
+
+		const allowedHarness = createSessionActionHarness(disposables, {
+			policyOverrides: { allowWorktreeMutation: true },
+			providerCapabilityOverrides: { canOpenWorktrees: true, requiresApprovalForWorktreeActions: false },
+		});
+		const allowedResult = await allowedHarness.service.submitAction(testSessionId, testProviderId, createActionForKind(SessionActionKind.OpenWorktree));
+		const receipt = allowedHarness.service.getReceiptsForSession(testSessionId)[0];
+
+		assert.strictEqual(allowedResult.status, SessionActionStatus.Failed);
+		assert.strictEqual(receipt.worktreePath?.toString(), testWorktreeRoot.toString());
+		assert.strictEqual(receipt.denialReason, SessionActionDenialReason.UnsupportedAction);
+		assert.ok(receipt.stderr?.includes('not yet supported'));
+	});
+
 	test('agent-host confirmation resolves through the Sessions action spine and yields an auditable receipt', async () => {
 		const providerId = 'local-agent-host';
 		const sessionId = 'sess-e2e';
@@ -132,9 +309,7 @@ suite('SessionActionE2E', () => {
 			policyOverrides: { allowWorkspaceWrites: true },
 		});
 		const activeSession = createActiveSession(providerId, URI.from({ scheme: 'agent-host-copilot', path: `/${sessionId}` }), testRepositoryRoot, sessionId);
-		const managementService = {
-			activeSession: observableValue('activeSession', activeSession),
-		} as ISessionsManagementService;
+		const managementService = createSessionsManagementServiceStub(activeSession);
 		const resolver = new SessionsAgentHostToolConfirmationResolverService(managementService, harness.providersService, harness.service);
 
 		const result = await resolver.resolveToolConfirmation({

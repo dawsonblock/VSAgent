@@ -22,6 +22,7 @@ import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { IViewPaneOptions, ViewPane } from '../../../../workbench/browser/parts/views/viewPane.js';
 import { IViewDescriptorService } from '../../../../workbench/common/views.js';
 import { ISessionActionReceiptService, SessionActionReceipt, SessionActionReceiptScopeSummary, SessionActionReceiptStatus } from '../../../services/actions/common/sessionActionReceipts.js';
+import { SessionActionKind } from '../../../services/actions/common/sessionActionTypes.js';
 import { ISessionsManagementService } from '../../../services/sessions/common/sessionsManagement.js';
 
 const $ = DOM.$;
@@ -276,20 +277,12 @@ export function getSessionActionLogDetailItems(receipt: SessionActionReceipt): r
 	pushDetail(localize('sessionActionLog.detail.host', "Host"), formatHostTarget(receipt));
 	pushDetail(localize('sessionActionLog.detail.requestedScope', "Requested Scope"), formatScopeSummary(receipt.requestedScope));
 	pushDetail(localize('sessionActionLog.detail.approvedScope', "Approved Scope"), formatScopeSummary(receipt.approvedScope));
-	pushDetail(localize('sessionActionLog.detail.cwd', "Cwd"), receipt.cwd?.toString());
-	pushDetail(localize('sessionActionLog.detail.repository', "Repository"), receipt.repositoryPath?.toString());
-	pushDetail(localize('sessionActionLog.detail.worktree', "Worktree"), receipt.worktreePath?.toString());
-	pushDetail(localize('sessionActionLog.detail.command', "Command"), receipt.command);
-	pushDetail(localize('sessionActionLog.detail.arguments', "Arguments"), receipt.args?.join('\n'));
-	pushDetail(localize('sessionActionLog.detail.branch', "Branch"), receipt.branch);
+	appendActionSpecificDetails(receipt, pushDetail);
 	pushDetail(localize('sessionActionLog.detail.approvalSummary', "Approval Summary"), receipt.approvalSummary);
 	pushDetail(localize('sessionActionLog.detail.approvalFingerprint', "Approval Fingerprint"), receipt.approvalFingerprint);
 	pushDetail(localize('sessionActionLog.detail.approval', "Approval"), formatApproval(receipt));
 	pushDetail(localize('sessionActionLog.detail.denialReason', "Denial Reason"), receipt.denialReason);
 	pushDetail(localize('sessionActionLog.detail.denial', "Denial"), formatDenial(receipt));
-	pushDetail(localize('sessionActionLog.detail.filesTouched', "Touched Files"), receipt.filesTouched.length > 0 ? receipt.filesTouched.map(file => file.toString()).join('\n') : undefined);
-	pushDetail(localize('sessionActionLog.detail.stdout', "Stdout"), receipt.stdout);
-	pushDetail(localize('sessionActionLog.detail.stderr', "Stderr"), receipt.stderr);
 	pushDetail(localize('sessionActionLog.detail.advisorySources', "Advisory Sources"), receipt.advisorySources.length > 0 ? receipt.advisorySources.join(', ') : undefined);
 	pushDetail(localize('sessionActionLog.detail.error', "Error"), receipt.error?.message);
 	return details;
@@ -346,6 +339,62 @@ function formatStatus(status: SessionActionReceiptStatus): string {
 		default:
 			return status;
 	}
+}
+
+function appendActionSpecificDetails(receipt: SessionActionReceipt, pushDetail: (label: string, value: string | undefined) => void): void {
+	switch (receipt.actionKind) {
+		case SessionActionKind.SearchWorkspace:
+			pushDetail(localize('sessionActionLog.detail.query', "Query"), receipt.query);
+			pushDetail(localize('sessionActionLog.detail.includePattern', "Include Pattern"), receipt.includePattern);
+			pushDetail(localize('sessionActionLog.detail.isRegexp', "Regular Expression"), formatBooleanDetail(receipt.isRegexp));
+			pushDetail(localize('sessionActionLog.detail.maxResults', "Max Results"), typeof receipt.maxResults === 'number' ? String(receipt.maxResults) : undefined);
+			pushDetail(localize('sessionActionLog.detail.resultCount', "Result Count"), typeof receipt.resultCount === 'number' ? String(receipt.resultCount) : undefined);
+			break;
+		case SessionActionKind.ReadFile:
+			pushDetail(localize('sessionActionLog.detail.resource', "Resource"), receipt.resource?.toString());
+			pushDetail(localize('sessionActionLog.detail.startLine', "Start Line"), typeof receipt.startLine === 'number' ? String(receipt.startLine) : undefined);
+			pushDetail(localize('sessionActionLog.detail.endLine', "End Line"), typeof receipt.endLine === 'number' ? String(receipt.endLine) : undefined);
+			break;
+		case SessionActionKind.WritePatch:
+			pushDetail(localize('sessionActionLog.detail.filesTouched', "Touched Files"), receipt.filesTouched.length > 0 ? receipt.filesTouched.map(file => file.toString()).join('\n') : undefined);
+			break;
+		case SessionActionKind.RunCommand:
+			pushDetail(localize('sessionActionLog.detail.cwd', "Cwd"), receipt.cwd?.toString());
+			pushDetail(localize('sessionActionLog.detail.command', "Command"), receipt.command);
+			pushDetail(localize('sessionActionLog.detail.arguments', "Arguments"), receipt.args?.join('\n'));
+			pushDetail(localize('sessionActionLog.detail.stdout', "Stdout"), receipt.stdout);
+			pushDetail(localize('sessionActionLog.detail.stderr', "Stderr"), receipt.stderr);
+			pushDetail(localize('sessionActionLog.detail.exitCode', "Exit Code"), typeof receipt.exitCode === 'number' ? String(receipt.exitCode) : undefined);
+			break;
+		case SessionActionKind.GitStatus:
+			pushDetail(localize('sessionActionLog.detail.repository', "Repository"), receipt.repositoryPath?.toString());
+			pushDetail(localize('sessionActionLog.detail.stdout', "Stdout"), receipt.stdout);
+			pushDetail(localize('sessionActionLog.detail.stderr', "Stderr"), receipt.stderr);
+			break;
+		case SessionActionKind.GitDiff:
+			pushDetail(localize('sessionActionLog.detail.repository', "Repository"), receipt.repositoryPath?.toString());
+			pushDetail(localize('sessionActionLog.detail.ref', "Ref"), receipt.ref);
+			pushDetail(localize('sessionActionLog.detail.stdout', "Stdout"), receipt.stdout);
+			pushDetail(localize('sessionActionLog.detail.stderr', "Stderr"), receipt.stderr);
+			break;
+		case SessionActionKind.OpenWorktree:
+			pushDetail(localize('sessionActionLog.detail.repository', "Repository"), receipt.repositoryPath?.toString());
+			pushDetail(localize('sessionActionLog.detail.worktree', "Worktree"), receipt.worktreePath?.toString());
+			pushDetail(localize('sessionActionLog.detail.branch', "Branch"), receipt.branch);
+			pushDetail(localize('sessionActionLog.detail.stdout', "Stdout"), receipt.stdout);
+			pushDetail(localize('sessionActionLog.detail.stderr', "Stderr"), receipt.stderr);
+			break;
+	}
+}
+
+function formatBooleanDetail(value: boolean | undefined): string | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	return value
+		? localize('sessionActionLog.boolean.true', "Yes")
+		: localize('sessionActionLog.boolean.false', "No");
 }
 
 function formatScopeSummary(scope: SessionActionReceiptScopeSummary): string | undefined {
