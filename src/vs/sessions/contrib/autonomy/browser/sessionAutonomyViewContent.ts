@@ -155,16 +155,8 @@ function formatRemainingBudget(entry: SessionExecutionMemoryEntry): string | und
 	const remainingSteps = Math.max(0, budgetState.budget.maxSteps - budgetState.executedSteps);
 	const remainingCommands = Math.max(0, budgetState.budget.maxCommands - budgetState.executedCommands);
 	const remainingFileWrites = Math.max(0, budgetState.budget.maxFileWrites - budgetState.fileWrites);
-const remainingModifiedFiles = Math.max(0, budgetState.budget.maxModifiedFiles - (budgetState.modifiedFiles?.length ?? 0));
+	const remainingModifiedFiles = Math.max(0, budgetState.budget.maxModifiedFiles - (budgetState.modifiedFiles?.length ?? 0));
 	const remainingFailures = Math.max(0, budgetState.budget.maxFailures - budgetState.failures);
 
-	return localize(
-		'sessionAutonomyStatusBudgetRemainingValue',
-		"{0} steps, {1} commands, {2} file writes, {3} modified files, {4} failures",
-		remainingSteps,
-		remainingCommands,
-		remainingFileWrites,
-		remainingModifiedFiles,
-		remainingFailures,
-	);
+	return `${remainingSteps} steps, ${remainingCommands} commands, ${remainingFileWrites} file writes, ${remainingModifiedFiles} modified files, ${remainingFailures} failures`;
 }
