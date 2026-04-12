@@ -7,7 +7,7 @@ import assert from 'assert';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { SessionActionReceipt, SessionActionReceiptStatus } from '../../../../services/actions/common/sessionActionReceipts.js';
-import { SessionHostKind, SessionActionKind, SessionActionDenialReason } from '../../../../services/actions/common/sessionActionTypes.js';
+import { SessionHostKind, SessionActionKind, SessionActionDenialReason, SessionWriteOperationStatus } from '../../../../services/actions/common/sessionActionTypes.js';
 import { buildTree, formatSessionActionLogText, getSessionActionLogDetailItems } from '../../browser/sessionActionLogView.js';
 
 suite('SessionActionLogView', () => {
@@ -31,9 +31,16 @@ suite('SessionActionLogView', () => {
 			isRegexp: undefined,
 			maxResults: undefined,
 			resultCount: undefined,
+			matchCount: undefined,
+			searchMatches: undefined,
 			resource: undefined,
 			startLine: undefined,
 			endLine: undefined,
+			readContents: undefined,
+			readEncoding: undefined,
+			readByteSize: undefined,
+			readLineCount: undefined,
+			readIsPartial: undefined,
 			ref: undefined,
 			requestedScope: {
 				workspaceRoot: URI.file('/workspace'),
@@ -66,12 +73,19 @@ suite('SessionActionLogView', () => {
 			completedAt: requestedAt,
 			status,
 			filesTouched: [URI.file('/workspace/repo/file.ts')],
+			operation: 'workspace edit',
+			operationCount: 1,
+			writeOperations: [{ resource: URI.file('/workspace/repo/file.ts'), status: SessionWriteOperationStatus.Updated, bytesWritten: 12 }],
 			cwd: URI.file('/workspace/repo'),
 			repositoryPath: URI.file('/workspace/repo'),
 			worktreePath: URI.file('/workspace/repo'),
 			command: 'npm',
 			args: ['test'],
 			branch: 'feature',
+			filesChanged: undefined,
+			insertions: undefined,
+			deletions: undefined,
+			gitChanges: undefined,
 			stdout: 'ok',
 			stderr: undefined,
 			approvalSummary: 'Approved write',
@@ -122,6 +136,9 @@ suite('SessionActionLogView', () => {
 		assert.ok(details.some(detail => detail.label === 'Host'));
 		assert.ok(details.some(detail => detail.label === 'Requested Scope'));
 		assert.ok(details.some(detail => detail.label === 'Approved Scope'));
+		assert.ok(details.some(detail => detail.label === 'Operation'));
+		assert.ok(details.some(detail => detail.label === 'Operation Count'));
+		assert.ok(details.some(detail => detail.label === 'Write Operations'));
 		assert.ok(details.some(detail => detail.label === 'Touched Files'));
 		assert.ok(details.some(detail => detail.label === 'Denial Reason'));
 		assert.ok(details.some(detail => detail.label === 'Denial'));
@@ -147,20 +164,20 @@ suite('SessionActionLogView', () => {
 		const cases: readonly ActionDetailCase[] = [
 			{
 				kind: SessionActionKind.SearchWorkspace,
-				overrides: { query: 'needle', includePattern: 'src/**', isRegexp: true, maxResults: 25, resultCount: 3 },
-				expectedLabels: ['Query', 'Include Pattern', 'Regular Expression', 'Max Results', 'Result Count'],
+				overrides: { query: 'needle', includePattern: 'src/**', isRegexp: true, maxResults: 25, resultCount: 3, matchCount: 4, searchMatches: [{ resource: URI.file('/workspace/repo/file.ts'), lineNumber: 2, lineNumbers: [2], preview: 'needle', matchCount: 1 }] },
+				expectedLabels: ['Query', 'Include Pattern', 'Regular Expression', 'Max Results', 'Result Count', 'Match Count', 'Matches'],
 				forbiddenLabels: ['Resource', 'Command', 'Arguments', 'Repository', 'Ref', 'Branch', 'Touched Files'],
 			},
 			{
 				kind: SessionActionKind.ReadFile,
-				overrides: { resource: URI.file('/workspace/repo/notes.md'), startLine: 3, endLine: 9 },
-				expectedLabels: ['Resource', 'Start Line', 'End Line'],
+				overrides: { resource: URI.file('/workspace/repo/notes.md'), startLine: 3, endLine: 9, readContents: 'content', readEncoding: 'utf8', readByteSize: 12, readLineCount: 1, readIsPartial: true },
+				expectedLabels: ['Resource', 'Start Line', 'End Line', 'Encoding', 'Byte Size', 'Line Count', 'Partial Read', 'Contents'],
 				forbiddenLabels: ['Query', 'Command', 'Arguments', 'Repository', 'Ref', 'Branch', 'Touched Files'],
 			},
 			{
 				kind: SessionActionKind.WritePatch,
 				overrides: {},
-				expectedLabels: ['Touched Files'],
+				expectedLabels: ['Operation', 'Operation Count', 'Touched Files', 'Write Operations'],
 				forbiddenLabels: ['Query', 'Resource', 'Command', 'Arguments', 'Repository', 'Ref', 'Branch'],
 			},
 			{
@@ -171,21 +188,21 @@ suite('SessionActionLogView', () => {
 			},
 			{
 				kind: SessionActionKind.GitStatus,
-				overrides: { stderr: 'git warning' },
-				expectedLabels: ['Repository', 'Stdout', 'Stderr'],
-				forbiddenLabels: ['Query', 'Resource', 'Command', 'Arguments', 'Ref', 'Branch', 'Touched Files'],
+				overrides: { operation: 'git status', branch: 'main', filesChanged: 2, stderr: 'git warning' },
+				expectedLabels: ['Repository', 'Operation', 'Branch', 'Files Changed', 'Stdout', 'Stderr'],
+				forbiddenLabels: ['Query', 'Resource', 'Command', 'Arguments', 'Ref', 'Touched Files'],
 			},
 			{
 				kind: SessionActionKind.GitDiff,
-				overrides: { ref: 'HEAD~1', stderr: 'git diff warning' },
-				expectedLabels: ['Repository', 'Ref', 'Stdout', 'Stderr'],
+				overrides: { operation: 'git diff HEAD~1', ref: 'HEAD~1', filesChanged: 1, insertions: 1, deletions: 0, gitChanges: [{ resource: URI.file('/workspace/repo/file.ts'), insertions: 1, deletions: 0 }], stderr: 'git diff warning' },
+				expectedLabels: ['Repository', 'Operation', 'Ref', 'Files Changed', 'Insertions', 'Deletions', 'Changes', 'Stdout', 'Stderr'],
 				forbiddenLabels: ['Query', 'Resource', 'Command', 'Arguments', 'Branch', 'Touched Files'],
 			},
 			{
 				kind: SessionActionKind.OpenWorktree,
 				status: SessionActionReceiptStatus.Failed,
-				overrides: { stderr: 'not supported' },
-				expectedLabels: ['Repository', 'Worktree', 'Branch', 'Stdout', 'Stderr'],
+				overrides: { operation: 'git worktree add', stderr: 'not supported' },
+				expectedLabels: ['Repository', 'Operation', 'Worktree', 'Branch', 'Stdout', 'Stderr'],
 				forbiddenLabels: ['Query', 'Resource', 'Command', 'Arguments', 'Ref', 'Touched Files'],
 			},
 		];

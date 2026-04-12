@@ -349,14 +349,24 @@ function appendActionSpecificDetails(receipt: SessionActionReceipt, pushDetail: 
 			pushDetail(localize('sessionActionLog.detail.isRegexp', "Regular Expression"), formatBooleanDetail(receipt.isRegexp));
 			pushDetail(localize('sessionActionLog.detail.maxResults', "Max Results"), typeof receipt.maxResults === 'number' ? String(receipt.maxResults) : undefined);
 			pushDetail(localize('sessionActionLog.detail.resultCount', "Result Count"), typeof receipt.resultCount === 'number' ? String(receipt.resultCount) : undefined);
+			pushDetail(localize('sessionActionLog.detail.matchCount', "Match Count"), typeof receipt.matchCount === 'number' ? String(receipt.matchCount) : undefined);
+			pushDetail(localize('sessionActionLog.detail.matches', "Matches"), formatSearchMatches(receipt));
 			break;
 		case SessionActionKind.ReadFile:
 			pushDetail(localize('sessionActionLog.detail.resource', "Resource"), receipt.resource?.toString());
 			pushDetail(localize('sessionActionLog.detail.startLine', "Start Line"), typeof receipt.startLine === 'number' ? String(receipt.startLine) : undefined);
 			pushDetail(localize('sessionActionLog.detail.endLine', "End Line"), typeof receipt.endLine === 'number' ? String(receipt.endLine) : undefined);
+			pushDetail(localize('sessionActionLog.detail.readEncoding', "Encoding"), receipt.readEncoding);
+			pushDetail(localize('sessionActionLog.detail.readByteSize', "Byte Size"), typeof receipt.readByteSize === 'number' ? String(receipt.readByteSize) : undefined);
+			pushDetail(localize('sessionActionLog.detail.readLineCount', "Line Count"), typeof receipt.readLineCount === 'number' ? String(receipt.readLineCount) : undefined);
+			pushDetail(localize('sessionActionLog.detail.readIsPartial', "Partial Read"), formatBooleanDetail(receipt.readIsPartial));
+			pushDetail(localize('sessionActionLog.detail.readContents', "Contents"), receipt.readContents);
 			break;
 		case SessionActionKind.WritePatch:
+			pushDetail(localize('sessionActionLog.detail.operation', "Operation"), receipt.operation);
+			pushDetail(localize('sessionActionLog.detail.operationCount', "Operation Count"), typeof receipt.operationCount === 'number' ? String(receipt.operationCount) : undefined);
 			pushDetail(localize('sessionActionLog.detail.filesTouched', "Touched Files"), receipt.filesTouched.length > 0 ? receipt.filesTouched.map(file => file.toString()).join('\n') : undefined);
+			pushDetail(localize('sessionActionLog.detail.writeOperations', "Write Operations"), formatWriteOperations(receipt));
 			break;
 		case SessionActionKind.RunCommand:
 			pushDetail(localize('sessionActionLog.detail.cwd', "Cwd"), receipt.cwd?.toString());
@@ -368,17 +378,26 @@ function appendActionSpecificDetails(receipt: SessionActionReceipt, pushDetail: 
 			break;
 		case SessionActionKind.GitStatus:
 			pushDetail(localize('sessionActionLog.detail.repository', "Repository"), receipt.repositoryPath?.toString());
+			pushDetail(localize('sessionActionLog.detail.operation', "Operation"), receipt.operation);
+			pushDetail(localize('sessionActionLog.detail.branch', "Branch"), receipt.branch);
+			pushDetail(localize('sessionActionLog.detail.filesChanged', "Files Changed"), typeof receipt.filesChanged === 'number' ? String(receipt.filesChanged) : undefined);
 			pushDetail(localize('sessionActionLog.detail.stdout', "Stdout"), receipt.stdout);
 			pushDetail(localize('sessionActionLog.detail.stderr', "Stderr"), receipt.stderr);
 			break;
 		case SessionActionKind.GitDiff:
 			pushDetail(localize('sessionActionLog.detail.repository', "Repository"), receipt.repositoryPath?.toString());
+			pushDetail(localize('sessionActionLog.detail.operation', "Operation"), receipt.operation);
 			pushDetail(localize('sessionActionLog.detail.ref', "Ref"), receipt.ref);
+			pushDetail(localize('sessionActionLog.detail.filesChanged', "Files Changed"), typeof receipt.filesChanged === 'number' ? String(receipt.filesChanged) : undefined);
+			pushDetail(localize('sessionActionLog.detail.insertions', "Insertions"), typeof receipt.insertions === 'number' ? String(receipt.insertions) : undefined);
+			pushDetail(localize('sessionActionLog.detail.deletions', "Deletions"), typeof receipt.deletions === 'number' ? String(receipt.deletions) : undefined);
+			pushDetail(localize('sessionActionLog.detail.gitChanges', "Changes"), formatGitChanges(receipt));
 			pushDetail(localize('sessionActionLog.detail.stdout', "Stdout"), receipt.stdout);
 			pushDetail(localize('sessionActionLog.detail.stderr', "Stderr"), receipt.stderr);
 			break;
 		case SessionActionKind.OpenWorktree:
 			pushDetail(localize('sessionActionLog.detail.repository', "Repository"), receipt.repositoryPath?.toString());
+			pushDetail(localize('sessionActionLog.detail.operation', "Operation"), receipt.operation);
 			pushDetail(localize('sessionActionLog.detail.worktree', "Worktree"), receipt.worktreePath?.toString());
 			pushDetail(localize('sessionActionLog.detail.branch', "Branch"), receipt.branch);
 			pushDetail(localize('sessionActionLog.detail.stdout', "Stdout"), receipt.stdout);
@@ -395,6 +414,30 @@ function formatBooleanDetail(value: boolean | undefined): string | undefined {
 	return value
 		? localize('sessionActionLog.boolean.true', "Yes")
 		: localize('sessionActionLog.boolean.false', "No");
+}
+
+function formatSearchMatches(receipt: SessionActionReceipt): string | undefined {
+	if (!receipt.searchMatches || receipt.searchMatches.length === 0) {
+		return undefined;
+	}
+
+	return receipt.searchMatches.map(match => `${match.resource.toString()}:${match.lineNumbers.join(', ')} (${match.matchCount}) ${match.preview}`).join('\n');
+}
+
+function formatWriteOperations(receipt: SessionActionReceipt): string | undefined {
+	if (!receipt.writeOperations || receipt.writeOperations.length === 0) {
+		return undefined;
+	}
+
+	return receipt.writeOperations.map(operation => `${operation.status} ${operation.resource.toString()}${typeof operation.bytesWritten === 'number' ? ` (${operation.bytesWritten} bytes)` : ''}${operation.error ? ` - ${operation.error}` : ''}`).join('\n');
+}
+
+function formatGitChanges(receipt: SessionActionReceipt): string | undefined {
+	if (!receipt.gitChanges || receipt.gitChanges.length === 0) {
+		return undefined;
+	}
+
+	return receipt.gitChanges.map(change => `${change.resource.toString()} (+${change.insertions}/-${change.deletions})`).join('\n');
 }
 
 function formatScopeSummary(scope: SessionActionReceiptScopeSummary): string | undefined {

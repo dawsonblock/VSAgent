@@ -126,6 +126,8 @@ suite('SessionEvaluationService', () => {
 				advisorySources: [],
 				filesTouched: [outsideFile],
 				applied: true,
+				operationCount: 1,
+				operations: [],
 				summary: 'Patched file.',
 			},
 			budgetState: budgetService.createBudgetState(getDefaultSessionPlanBudget()),
@@ -134,6 +136,96 @@ suite('SessionEvaluationService', () => {
 		assert.strictEqual(result.decision, AutonomyContinuationDecision.Stop);
 		assert.strictEqual(result.stopReason, AutonomyStopReason.ScopeDrift);
 		assert.strictEqual(result.scopeDrift, true);
+	});
+
+	test('evaluateStep replans when a git diff produces no changes', () => {
+		const service = disposables.add(new SessionEvaluationService());
+		const budgetService = disposables.add(new SessionBudgetService());
+		const repository = URI.file('/workspace/repo');
+
+		const result = service.evaluateStep({
+			plan: createPlan(),
+			step: {
+				id: 'diff',
+				kind: SessionPlanStepKind.GitDiff,
+				title: 'Inspect the diff',
+				dependsOn: [],
+				action: {
+					kind: SessionActionKind.GitDiff,
+					requestedBy: SessionActionRequestSource.Session,
+					repository,
+					ref: 'HEAD~1',
+				},
+				estimatedScope: { files: [] },
+				riskClasses: [SessionPlanRiskClass.ReadOnly],
+				estimatedApprovalRequired: false,
+				checkpointRequirement: SessionPlanCheckpointRequirement.None,
+			},
+			result: {
+				actionId: 'diff-action',
+				kind: SessionActionKind.GitDiff,
+				status: SessionActionStatus.Executed,
+				advisorySources: [],
+				repository,
+				operation: 'git diff HEAD~1',
+				ref: 'HEAD~1',
+				filesChanged: 0,
+				insertions: 0,
+				deletions: 0,
+				stdout: '',
+				summary: 'Inspected git diff.',
+			},
+			budgetState: budgetService.createBudgetState(getDefaultSessionPlanBudget()),
+		});
+
+		assert.strictEqual(result.decision, AutonomyContinuationDecision.Replan);
+		assert.strictEqual(result.madeProgress, false);
+	});
+
+	test('evaluateStep stops immediately when a failure reports an unsupported action boundary', () => {
+		const service = disposables.add(new SessionEvaluationService());
+		const budgetService = disposables.add(new SessionBudgetService());
+		const repository = URI.file('/workspace/repo');
+		const worktreePath = URI.file('/workspace/repo-worktree');
+
+		const result = service.evaluateStep({
+			plan: createPlan(),
+			step: {
+				id: 'worktree',
+				kind: SessionPlanStepKind.OpenWorktree,
+				title: 'Create the worktree',
+				dependsOn: [],
+				action: {
+					kind: SessionActionKind.OpenWorktree,
+					requestedBy: SessionActionRequestSource.Session,
+					repository,
+					worktreePath,
+					branch: 'repair',
+				},
+				estimatedScope: { files: [] },
+				riskClasses: [SessionPlanRiskClass.RepoMutation],
+				estimatedApprovalRequired: true,
+				checkpointRequirement: SessionPlanCheckpointRequirement.Required,
+			},
+			result: {
+				actionId: 'worktree-action',
+				kind: SessionActionKind.OpenWorktree,
+				status: SessionActionStatus.Failed,
+				advisorySources: [],
+				repository,
+				operation: 'git worktree add',
+				worktreePath,
+				branch: 'repair',
+				opened: false,
+				denialReason: SessionActionDenialReason.UnsupportedAction,
+				denialMessage: 'Worktree creation is not yet supported by the Sessions executor bridge.',
+				summary: 'Worktree creation is not yet supported by the Sessions executor bridge.',
+			},
+			budgetState: budgetService.createBudgetState(getDefaultSessionPlanBudget()),
+		});
+
+		assert.strictEqual(result.decision, AutonomyContinuationDecision.Stop);
+		assert.strictEqual(result.stopReason, AutonomyStopReason.CapabilityDenied);
 	});
 });
 

@@ -11,14 +11,16 @@ import { observableValue } from '../../../../../base/common/observable.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import type { ICommandService } from '../../../../../platform/commands/common/commands.js';
+import { ResourceFileEdit, type IBulkEditService } from '../../../../../editor/browser/services/bulkEditService.js';
 import { InMemoryFileSystemProvider } from '../../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { FileService } from '../../../../../platform/files/common/fileService.js';
 import { NullLogService } from '../../../../../platform/log/common/log.js';
 import { GitRefType, type GitRepositoryState, type IGitRepository, type IGitService } from '../../../../../workbench/contrib/git/common/gitService.js';
 import type { IFileMatch, ISearchComplete, ISearchService } from '../../../../../workbench/services/search/common/search.js';
+import { ITextFileService, TextFileOperationError, TextFileOperationResult } from '../../../../../workbench/services/textfile/common/textfiles.js';
 import { SessionActionExecutorBridge } from '../../browser/sessionActionExecutorBridge.js';
 import { NormalizedSessionActionScope } from '../../common/sessionActionScope.js';
-import { SessionActionDenialReason, SessionActionKind, SessionActionRequestSource, SessionActionStatus, SessionCommandLaunchKind, SessionHostKind } from '../../common/sessionActionTypes.js';
+import { SessionActionDenialReason, SessionActionKind, SessionActionRequestSource, SessionActionStatus, SessionCommandLaunchKind, SessionHostKind, SessionWriteOperationStatus } from '../../common/sessionActionTypes.js';
 
 suite('SessionActionExecutorBridge', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite() as Pick<DisposableStore, 'add'>;
@@ -116,16 +118,94 @@ suite('SessionActionExecutorBridge', () => {
 			registerSearchResultProvider: () => toDisposable(() => { }),
 		};
 
+		const textFileService = {
+			_serviceBrand: undefined,
+			files: undefined,
+			untitled: undefined,
+			encoding: undefined,
+			isDirty: () => false,
+			save: async () => undefined,
+			saveAs: async () => undefined,
+			revert: async () => { },
+			read: async (resource: URI, options?: { acceptTextOnly?: boolean; limits?: { size?: number } }) => {
+				const content = await fileService.readFile(resource, options);
+				const value = content.value.toString();
+				if (options?.acceptTextOnly && value.includes('\u0000')) {
+					throw new TextFileOperationError('binary', TextFileOperationResult.FILE_IS_BINARY, options);
+				}
+
+				return {
+					...content,
+					encoding: 'utf8',
+					value,
+				};
+			},
+			readStream: async () => { throw new Error('Not implemented in test'); },
+			write: async () => { throw new Error('Not implemented in test'); },
+			create: async () => { throw new Error('Not implemented in test'); },
+			getEncodedReadable: async () => undefined,
+			getDecodedStream: async () => { throw new Error('Not implemented in test'); },
+			getEncoding: () => 'utf8',
+			resolveDecoding: async () => ({ preferredEncoding: 'utf8', guessEncoding: false, candidateGuessEncodings: [] }),
+			resolveEncoding: async () => ({ encoding: 'utf8', addBOM: false }),
+			validateDetectedEncoding: async (detectedEncoding: string) => detectedEncoding,
+			dispose: () => { },
+		} as unknown as ITextFileService;
+
+		const bulkEditService: IBulkEditService = {
+			_serviceBrand: undefined,
+			hasPreviewHandler: () => false,
+			setPreviewHandler: () => toDisposable(() => { }),
+			apply: async edits => {
+				for (const edit of Array.isArray(edits) ? edits : edits.edits) {
+					if (!ResourceFileEdit.is(edit)) {
+						continue;
+					}
+
+					const options = edit.options ?? {};
+
+					if (edit.oldResource && !edit.newResource) {
+						await fileService.del(edit.oldResource, {
+							recursive: options.recursive,
+							useTrash: !options.skipTrashBin,
+						});
+						continue;
+					}
+
+					if (edit.newResource) {
+						const contents = options.contents ? await options.contents : VSBuffer.fromString('');
+						await fileService.writeFile(edit.newResource, contents);
+					}
+				}
+
+				return {
+					ariaSummary: '',
+					isApplied: true,
+				};
+			},
+		};
+
 		bridge = new SessionActionExecutorBridge(
 			commandService,
 			fileService,
 			gitService,
 			searchService,
+			textFileService,
+			bulkEditService,
 		);
 	});
 
 	test('searchWorkspace returns structured matches', async () => {
-		searchResults = [{ resource: fileResource, results: [] }];
+		searchResults = [{
+			resource: fileResource,
+			results: [{
+				rangeLocations: [{
+					source: { startLineNumber: 3, startColumn: 1, endLineNumber: 3, endColumn: 7 },
+					preview: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 11 },
+				}],
+				previewText: 'needle here',
+			}],
+		} as IFileMatch];
 
 		const result = await bridge.execute({
 			kind: SessionActionKind.SearchWorkspace,
@@ -137,10 +217,12 @@ suite('SessionActionExecutorBridge', () => {
 		assert.strictEqual(result.status, SessionActionStatus.Executed);
 		assert.strictEqual(result.kind, SessionActionKind.SearchWorkspace);
 		assert.strictEqual(result.resultCount, 1);
-		assert.deepStrictEqual(result.matches, [{ resource: fileResource }]);
+		assert.strictEqual(result.matchCount, 1);
+		assert.strictEqual(result.limitHit, false);
+		assert.deepStrictEqual(result.matches, [{ resource: fileResource, lineNumber: 3, lineNumbers: [3], preview: 'needle here', matchCount: 1 }]);
 	});
 
-	test('readFile returns file contents', async () => {
+	test('readFile returns file contents and metadata', async () => {
 		await fileService.writeFile(fileResource, VSBuffer.fromString('hello world'));
 
 		const result = await bridge.execute({
@@ -152,6 +234,42 @@ suite('SessionActionExecutorBridge', () => {
 		assert.strictEqual(result.status, SessionActionStatus.Executed);
 		assert.strictEqual(result.kind, SessionActionKind.ReadFile);
 		assert.strictEqual(result.contents, 'hello world');
+		assert.strictEqual(result.encoding, 'utf8');
+		assert.strictEqual(result.byteSize, 11);
+		assert.strictEqual(result.lineCount, 1);
+		assert.strictEqual(result.isPartial, false);
+	});
+
+	test('readFile supports line ranges and rejects binary files', async () => {
+		await fileService.writeFile(fileResource, VSBuffer.fromString('alpha\nbeta\ngamma'));
+
+		const partialResult = await bridge.execute({
+			kind: SessionActionKind.ReadFile,
+			requestedBy: SessionActionRequestSource.User,
+			resource: fileResource,
+			startLine: 2,
+			endLine: 3,
+		}, createScope());
+		assert.strictEqual(partialResult.kind, SessionActionKind.ReadFile);
+		if (partialResult.kind !== SessionActionKind.ReadFile) {
+			assert.fail('Expected a readFile result.');
+		}
+
+		assert.strictEqual(partialResult.status, SessionActionStatus.Executed);
+		assert.strictEqual(partialResult.contents, 'beta\ngamma');
+		assert.strictEqual(partialResult.lineCount, 3);
+		assert.strictEqual(partialResult.isPartial, true);
+
+		await fileService.writeFile(fileResource, VSBuffer.fromString('a\u0000b'));
+		const binaryResult = await bridge.execute({
+			kind: SessionActionKind.ReadFile,
+			requestedBy: SessionActionRequestSource.User,
+			resource: fileResource,
+		}, createScope());
+
+		assert.strictEqual(binaryResult.status, SessionActionStatus.Failed);
+		assert.strictEqual(binaryResult.denialReason, SessionActionDenialReason.ExecutionFailed);
+		assert.ok(binaryResult.denialMessage?.includes('binary'));
 	});
 
 	test('writePatch applies create and delete operations', async () => {
@@ -171,6 +289,11 @@ suite('SessionActionExecutorBridge', () => {
 		assert.strictEqual(result.status, SessionActionStatus.Executed);
 		assert.strictEqual(result.kind, SessionActionKind.WritePatch);
 		assert.deepStrictEqual(result.filesTouched, [fileResource, deleteResource]);
+		assert.strictEqual(result.operationCount, 2);
+		assert.deepStrictEqual(result.operations, [
+			{ resource: fileResource, status: SessionWriteOperationStatus.Created, bytesWritten: 7 },
+			{ resource: deleteResource, status: SessionWriteOperationStatus.Deleted },
+		]);
 		assert.strictEqual((await fileService.readFile(fileResource)).value.toString(), 'updated');
 		await assert.rejects(() => fileService.readFile(deleteResource));
 	});
@@ -202,6 +325,11 @@ suite('SessionActionExecutorBridge', () => {
 		assert.ok(result.denialMessage?.includes('disk full'));
 		assert.deepStrictEqual(result.filesTouched, [fileResource]);
 		assert.strictEqual(result.applied, false);
+		assert.strictEqual(result.operationCount, 2);
+		assert.deepStrictEqual(result.operations, [
+			{ resource: fileResource, status: SessionWriteOperationStatus.Created, bytesWritten: 7 },
+			{ resource: deleteResource, status: SessionWriteOperationStatus.Failed, bytesWritten: 12, error: 'disk full' },
+		]);
 		assert.strictEqual((await fileService.readFile(fileResource)).value.toString(), 'updated');
 		await assert.rejects(() => fileService.readFile(deleteResource));
 	});
@@ -302,10 +430,18 @@ suite('SessionActionExecutorBridge', () => {
 
 		assert.strictEqual(statusResult.status, SessionActionStatus.Executed);
 		assert.strictEqual(statusResult.kind, SessionActionKind.GitStatus);
-		assert.ok(statusResult.stdout?.includes('"head": "main"'));
+		assert.strictEqual(statusResult.operation, 'git status');
+		assert.strictEqual(statusResult.branch, 'main');
+		assert.strictEqual(statusResult.filesChanged, 1);
+		assert.ok(statusResult.stdout?.includes('"branch": "main"'));
 		assert.strictEqual(statusResult.stderr, '');
 		assert.strictEqual(diffResult.status, SessionActionStatus.Executed);
 		assert.strictEqual(diffResult.kind, SessionActionKind.GitDiff);
+		assert.strictEqual(diffResult.operation, 'git diff HEAD~1');
+		assert.strictEqual(diffResult.ref, 'HEAD~1');
+		assert.strictEqual(diffResult.filesChanged, 1);
+		assert.strictEqual(diffResult.insertions, 4);
+		assert.strictEqual(diffResult.deletions, 2);
 		assert.ok(diffResult.stdout?.includes('(+4/-2)'));
 		assert.strictEqual(diffResult.stderr, '');
 	});
@@ -322,6 +458,7 @@ suite('SessionActionExecutorBridge', () => {
 		assert.strictEqual(result.status, SessionActionStatus.Failed);
 		assert.strictEqual(result.kind, SessionActionKind.OpenWorktree);
 		assert.strictEqual(result.denialReason, SessionActionDenialReason.UnsupportedAction);
+		assert.strictEqual(result.operation, 'git worktree add');
 		assert.strictEqual(result.branch, 'feature');
 		assert.ok(result.stderr?.includes('not yet supported'));
 	});

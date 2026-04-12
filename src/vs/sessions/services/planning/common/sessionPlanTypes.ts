@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { URI } from '../../../../base/common/uri.js';
-import { NormalizedHostTarget, SessionAction, SessionActionKind, SessionActionScope } from '../../actions/common/sessionActionTypes.js';
+import { NormalizedHostTarget, SessionAction, SessionActionKind, SessionActionScope, WritePatchAction } from '../../actions/common/sessionActionTypes.js';
 
 export const enum SessionPlanStepKind {
 	SearchWorkspace = 'searchWorkspace',
@@ -156,8 +156,36 @@ export function mergeSessionPlanBudget(overrides?: Partial<SessionPlanBudget>): 
 	};
 }
 
+export function estimateSessionPlanWritePatchWriteCount(action: WritePatchAction | undefined): number {
+	if (!action) {
+		return 0;
+	}
+
+	return action.operations?.length ?? action.files.length;
+}
+
+export function estimateSessionPlanWritePatchModifiedFiles(action: WritePatchAction | undefined): readonly URI[] {
+	if (!action) {
+		return [];
+	}
+
+	const resources = new Map<string, URI>();
+	for (const resource of action.files) {
+		resources.set(resource.toString(), resource);
+	}
+	for (const operation of action.operations ?? []) {
+		resources.set(operation.resource.toString(), operation.resource);
+	}
+
+	return [...resources.values()];
+}
+
 export function isExecutableSessionPlanStepKind(kind: SessionPlanStepKind): boolean {
 	return executableStepKindToActionKind.has(kind);
+}
+
+export function isSessionPlanStepKindSupportedByExecutor(kind: SessionPlanStepKind): boolean {
+	return kind !== SessionPlanStepKind.OpenWorktree;
 }
 
 export function sessionPlanStepKindToActionKind(kind: SessionPlanStepKind): SessionActionKind | undefined {
@@ -221,7 +249,7 @@ export function deriveSessionPlanScopeEstimateFromAction(action: SessionAction |
 			files.set(action.resource.toString(), action.resource);
 			break;
 		case SessionActionKind.WritePatch:
-			for (const resource of action.files) {
+			for (const resource of estimateSessionPlanWritePatchModifiedFiles(action)) {
 				files.set(resource.toString(), resource);
 			}
 			break;

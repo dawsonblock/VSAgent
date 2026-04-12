@@ -150,8 +150,13 @@ export class SessionActionScopeService implements ISessionActionScopeService {
 		switch (action.kind) {
 			case SessionActionKind.ReadFile:
 				return [(action as ReadFileAction).resource];
-			case SessionActionKind.WritePatch:
-				return (action as WritePatchAction).files;
+			case SessionActionKind.WritePatch: {
+				const writePatchAction = action as WritePatchAction;
+				return this._distinctUris([
+					...writePatchAction.files,
+					...(writePatchAction.operations?.map(operation => operation.resource) ?? []),
+				]);
+			}
 			default:
 				return [];
 		}

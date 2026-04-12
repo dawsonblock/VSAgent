@@ -16,6 +16,7 @@ import { SessionActionKind, SessionActionRequestSource, SessionActionStatus, Ses
 import { createScope, createSessionActionHarness, SessionActionHarnessOptions } from '../../../actions/test/browser/sessionActionTestUtils.js';
 import { SessionCheckpointService } from '../../../checkpoints/browser/sessionCheckpointService.js';
 import { SessionEvaluationService } from '../../../evaluation/browser/sessionEvaluationService.js';
+import { SessionExecutionMemoryService } from '../../../memory/browser/sessionExecutionMemoryService.js';
 import { SessionPlanningService } from '../../../planning/browser/sessionPlanningService.js';
 import { SessionPlanValidatorService } from '../../../planning/browser/sessionPlanValidatorService.js';
 import { SessionPlanRiskClass, SessionPlanStatus, SessionPlanStepKind } from '../../../planning/common/sessionPlanTypes.js';
@@ -27,10 +28,11 @@ import { AutonomyStopReason, SessionAutonomyMode } from '../../common/sessionAut
 suite('SessionAutonomousExecutionService', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite() as Pick<DisposableStore, 'add'>;
 
-	function createRuntime(policyOverrides?: Partial<ReturnType<typeof getDefaultSessionPolicySnapshot>>, harnessOptions?: Pick<SessionActionHarnessOptions, 'executor'>) {
+	function createRuntime(policyOverrides?: Partial<ReturnType<typeof getDefaultSessionPolicySnapshot>>, harnessOptions?: Pick<SessionActionHarnessOptions, 'executor' | 'providerCapabilityOverrides'>) {
 		const harness = createSessionActionHarness(disposables, {
 			policyOverrides,
 			executor: harnessOptions?.executor,
+			providerCapabilityOverrides: harnessOptions?.providerCapabilityOverrides,
 		});
 		const planningService = disposables.add(new SessionPlanningService());
 		const scopeService: ISessionActionScopeService = {
@@ -53,6 +55,7 @@ suite('SessionAutonomousExecutionService', () => {
 		const checkpointService = disposables.add(new SessionCheckpointService(harness.service));
 		const evaluationService = disposables.add(new SessionEvaluationService());
 		const autonomyPolicyService = disposables.add(new SessionAutonomyPolicyService());
+		const memoryService = new SessionExecutionMemoryService();
 		const executionService = disposables.add(new SessionAutonomousExecutionService(
 			harness.providersService,
 			policyService,
@@ -62,11 +65,13 @@ suite('SessionAutonomousExecutionService', () => {
 			checkpointService,
 			evaluationService,
 			harness.service,
+			memoryService,
 			new NullLogService(),
 		));
 
 		return {
 			harness,
+			memoryService,
 			planningService,
 			checkpointService,
 			executionService,
@@ -75,7 +80,7 @@ suite('SessionAutonomousExecutionService', () => {
 
 	test('executePlan routes executable steps through SessionActionService and checkpoints mutating steps', async () => {
 		const file = URI.file('/workspace/repo/src/app.ts');
-		const { harness, planningService, checkpointService, executionService } = createRuntime({
+		const { harness, memoryService, planningService, checkpointService, executionService } = createRuntime({
 			allowWorkspaceWrites: true,
 			allowCommands: true,
 			allowGitMutation: true,
@@ -127,6 +132,7 @@ suite('SessionAutonomousExecutionService', () => {
 		assert.strictEqual(harness.service.getReceiptsForSession(harness.session.sessionId).length, 2);
 		assert.strictEqual(checkpointService.getCheckpointsForSession(harness.session.sessionId).length, 1);
 		assert.strictEqual(result.stepResults.length, 2);
+		assert.strictEqual(memoryService.getSessionEntryValue(harness.session.sessionId)?.progress?.completedSteps, 2);
 	});
 
 	test('executePlan stops when the effective budget is exhausted', async () => {
@@ -147,6 +153,8 @@ suite('SessionAutonomousExecutionService', () => {
 					advisorySources: action.advisorySources ?? [],
 					filesTouched: [file, outsideFile],
 					applied: true,
+					operationCount: 2,
+					operations: [],
 					summary: 'Patched files.',
 				};
 			},
@@ -189,5 +197,49 @@ suite('SessionAutonomousExecutionService', () => {
 		assert.strictEqual(result.stopReason, AutonomyStopReason.BudgetExceeded);
 		assert.strictEqual(harness.getExecuteCalls(), 1);
 		assert.strictEqual(result.stepResults.length, 1);
+	});
+
+	test('executePlan rejects openWorktree steps before execution because the executor bridge does not support them', async () => {
+		const worktreeRoot = URI.file('/workspace/repo-worktree');
+		const { harness, planningService, executionService } = createRuntime({
+			allowWorktreeMutation: true,
+		}, {
+			providerCapabilityOverrides: { canOpenWorktrees: true },
+		});
+
+		const plan = await planningService.createPlan({
+			sessionId: harness.session.sessionId,
+			providerId: harness.session.providerId,
+			intent: 'Create a repair worktree',
+			hostTarget: {
+				kind: SessionHostKind.Local,
+				providerId: harness.session.providerId,
+			},
+			steps: [
+				{
+					id: 'worktree',
+					kind: SessionPlanStepKind.OpenWorktree,
+					title: 'Create the worktree',
+					action: {
+						kind: SessionActionKind.OpenWorktree,
+						requestedBy: SessionActionRequestSource.Session,
+						repository: URI.file('/workspace/repo'),
+						worktreePath: worktreeRoot,
+						branch: 'repair',
+					},
+				},
+			],
+		});
+
+		const result = await executionService.executePlan({
+			session: harness.session,
+			plan,
+			mode: SessionAutonomyMode.SupervisedExtended,
+		});
+
+		assert.strictEqual(result.status, SessionPlanStatus.Rejected);
+		assert.strictEqual(result.stopReason, AutonomyStopReason.ValidationFailed);
+		assert.strictEqual(harness.getExecuteCalls(), 0);
+		assert.ok(result.issues.some(issue => issue.message.includes('not yet supported')));
 	});
 });

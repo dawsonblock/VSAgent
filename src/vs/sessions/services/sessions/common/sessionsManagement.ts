@@ -11,6 +11,9 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import { SessionActionReceipt } from '../../actions/common/sessionActionReceipts.js';
 import { SessionAction, SessionActionResult } from '../../actions/common/sessionActionTypes.js';
+import { SessionExecutionMemoryEntry } from '../../memory/common/sessionExecutionMemoryService.js';
+import { SessionExecutionSummary } from '../../memory/common/sessionExecutionSummaryService.js';
+import { SessionPlan } from '../../planning/common/sessionPlanTypes.js';
 import { IChat, ISession, ISessionType, ISessionWorkspace } from './session.js';
 import { ISendRequestOptions } from './sessionsProvider.js';
 
@@ -85,6 +88,21 @@ export interface ISessionsManagementService {
 	 * When only one provider exists, it is selected automatically.
 	 */
 	readonly activeProviderId: IObservable<string | undefined>;
+
+	/**
+	 * Observable for the advisory execution state associated with the active session.
+	 */
+	readonly activeAdvisoryExecutionState: IObservable<SessionExecutionMemoryEntry | undefined>;
+
+	/**
+	 * Observable for the most recent advisory plan associated with the active session.
+	 */
+	readonly activeAdvisoryPlan: IObservable<SessionPlan | undefined>;
+
+	/**
+	 * Observable for the derived advisory execution summary associated with the active session.
+	 */
+	readonly activeAdvisoryExecutionSummary: IObservable<SessionExecutionSummary | undefined>;
 
 	/**
 	 * Set the active sessions provider by ID.

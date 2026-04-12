@@ -22,6 +22,7 @@ suite('SessionPlanningService', () => {
 	test('createPlan derives typed plan metadata for executable and planning-only steps', async () => {
 		const service = disposables.add(new SessionPlanningService());
 		const file = URI.file('/workspace/repo/src/app.ts');
+		const helperFile = URI.file('/workspace/repo/src/helper.ts');
 
 		const plan = await service.createPlan({
 			sessionId: 'session-1',
@@ -49,6 +50,10 @@ suite('SessionPlanningService', () => {
 						requestedBy: SessionActionRequestSource.Session,
 						patch: 'patch',
 						files: [file],
+						operations: [
+							{ resource: file, contents: 'updated' },
+							{ resource: helperFile, contents: 'helper' },
+						],
 					},
 				},
 				{
@@ -64,7 +69,7 @@ suite('SessionPlanningService', () => {
 		assert.deepStrictEqual(plan.steps[0].riskClasses, [SessionPlanRiskClass.ReadOnly]);
 		assert.deepStrictEqual(plan.steps[1].riskClasses, [SessionPlanRiskClass.RepoMutation]);
 		assert.strictEqual(plan.steps[1].checkpointRequirement, SessionPlanCheckpointRequirement.Required);
-		assert.deepStrictEqual(plan.steps[1].estimatedScope.files.map(resource => resource.toString()), [file.toString()]);
+		assert.deepStrictEqual(plan.steps[1].estimatedScope.files.map(resource => resource.toString()).sort(), [file.toString(), helperFile.toString()].sort());
 		assert.strictEqual(plan.steps[1].estimatedApprovalRequired, true);
 		assert.strictEqual(plan.steps[2].checkpointRequirement, SessionPlanCheckpointRequirement.None);
 		assert.strictEqual(plan.steps[2].estimatedApprovalRequired, false);

@@ -12,6 +12,7 @@ export const enum SessionPlanValidationIssueCode {
 	MissingAction = 'missingAction',
 	NonExecutableAction = 'nonExecutableAction',
 	MismatchedActionKind = 'mismatchedActionKind',
+	UnsupportedAction = 'unsupportedAction',
 	InvalidDependency = 'invalidDependency',
 	DependencyCycle = 'dependencyCycle',
 	BudgetExceeded = 'budgetExceeded',

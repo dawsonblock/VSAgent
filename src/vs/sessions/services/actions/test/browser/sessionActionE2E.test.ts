@@ -139,6 +139,7 @@ suite('SessionActionE2E', () => {
 				assertReceipt: receipt => {
 					assert.strictEqual(receipt.query, 'needle');
 					assert.strictEqual(receipt.maxResults, 5);
+					assert.strictEqual(receipt.matchCount, 1);
 					assert.strictEqual(receipt.executionSummary, 'Found 1 workspace search match.');
 				},
 			},
@@ -148,6 +149,8 @@ suite('SessionActionE2E', () => {
 				expectedReceiptStatus: SessionActionReceiptStatus.Executed,
 				assertReceipt: receipt => {
 					assert.strictEqual(receipt.resource?.toString(), testFileResource.toString());
+					assert.strictEqual(receipt.readContents, 'file contents');
+					assert.strictEqual(receipt.readEncoding, 'utf8');
 					assert.strictEqual(receipt.executionSummary, 'Read file.');
 				},
 			},
@@ -158,6 +161,8 @@ suite('SessionActionE2E', () => {
 				expectedReceiptStatus: SessionActionReceiptStatus.Executed,
 				assertReceipt: receipt => {
 					assert.deepStrictEqual(receipt.filesTouched.map(file => file.toString()), [testFileResource.toString()]);
+					assert.strictEqual(receipt.operationCount, 1);
+					assert.strictEqual(receipt.writeOperations?.[0].status, 'updated');
 					assert.strictEqual(receipt.executionSummary, 'Applied file updates.');
 				},
 			},
@@ -168,7 +173,9 @@ suite('SessionActionE2E', () => {
 				expectedReceiptStatus: SessionActionReceiptStatus.Executed,
 				assertReceipt: receipt => {
 					assert.strictEqual(receipt.repositoryPath?.toString(), testRepositoryRoot.toString());
-					assert.ok(receipt.stdout?.includes('"head": "main"'));
+					assert.strictEqual(receipt.branch, 'main');
+					assert.strictEqual(receipt.operation, 'git status');
+					assert.ok(receipt.stdout?.includes('"branch": "main"'));
 				},
 			},
 			{
@@ -179,6 +186,8 @@ suite('SessionActionE2E', () => {
 				assertReceipt: receipt => {
 					assert.strictEqual(receipt.repositoryPath?.toString(), testRepositoryRoot.toString());
 					assert.strictEqual(receipt.ref, 'HEAD~1');
+					assert.strictEqual(receipt.operation, 'git diff HEAD~1');
+					assert.strictEqual(receipt.insertions, 1);
 					assert.ok(receipt.stdout?.includes(testFileResource.toString()));
 				},
 			},
@@ -194,6 +203,7 @@ suite('SessionActionE2E', () => {
 					assert.strictEqual(receipt.denialReason, SessionActionDenialReason.UnsupportedAction);
 					assert.strictEqual(receipt.worktreePath?.toString(), testWorktreeRoot.toString());
 					assert.strictEqual(receipt.branch, 'feature');
+					assert.strictEqual(receipt.operation, 'git worktree add');
 					assert.ok(receipt.stderr?.includes('not yet supported'));
 				},
 			},
@@ -220,6 +230,7 @@ suite('SessionActionE2E', () => {
 
 		assert.strictEqual(result.status, SessionActionStatus.Executed);
 		assert.strictEqual(receipt.resultCount, 1);
+		assert.strictEqual(receipt.matchCount, 1);
 		assert.strictEqual(receipt.query, 'needle');
 		assert.strictEqual(receipt.executionSummary, 'Found 1 workspace search match.');
 	});
@@ -232,6 +243,7 @@ suite('SessionActionE2E', () => {
 
 		assert.strictEqual(result.status, SessionActionStatus.Executed);
 		assert.strictEqual(receipt.resource?.toString(), testFileResource.toString());
+		assert.strictEqual(receipt.readContents, 'file contents');
 		assert.strictEqual(receipt.executionSummary, 'Read file.');
 	});
 
@@ -253,6 +265,7 @@ suite('SessionActionE2E', () => {
 		assert.strictEqual(result.status, SessionActionStatus.Executed);
 		assert.strictEqual(receipt.approvalSummary, 'Approved write approval.');
 		assert.deepStrictEqual(receipt.filesTouched.map(file => file.toString()), [testFileResource.toString()]);
+		assert.strictEqual(receipt.writeOperations?.[0].status, 'updated');
 		assert.strictEqual(receipt.executionSummary, 'Applied file updates.');
 	});
 
@@ -273,6 +286,7 @@ suite('SessionActionE2E', () => {
 		assert.strictEqual(allowedResult.status, SessionActionStatus.Executed);
 		assert.strictEqual(allowedReceipt.ref, 'HEAD~1');
 		assert.strictEqual(allowedReceipt.repositoryPath?.toString(), testRepositoryRoot.toString());
+		assert.strictEqual(allowedReceipt.operation, 'git diff HEAD~1');
 		assert.ok(allowedReceipt.stdout?.includes(testFileResource.toString()));
 	});
 
@@ -297,6 +311,7 @@ suite('SessionActionE2E', () => {
 		assert.strictEqual(allowedResult.status, SessionActionStatus.Failed);
 		assert.strictEqual(receipt.worktreePath?.toString(), testWorktreeRoot.toString());
 		assert.strictEqual(receipt.denialReason, SessionActionDenialReason.UnsupportedAction);
+		assert.strictEqual(receipt.operation, 'git worktree add');
 		assert.ok(receipt.stderr?.includes('not yet supported'));
 	});
 

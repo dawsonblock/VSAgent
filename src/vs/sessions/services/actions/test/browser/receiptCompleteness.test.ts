@@ -59,6 +59,8 @@ suite('ReceiptCompleteness', () => {
 		assert.strictEqual(result.status, SessionActionStatus.Executed);
 		assert.strictEqual(receipt.status, SessionActionReceiptStatus.Executed);
 		assert.deepStrictEqual(receipt.filesTouched.map(file => file.toString()), [testFileResource.toString()]);
+		assert.strictEqual(receipt.operation, 'workspace edit');
+		assert.strictEqual(receipt.operationCount, 1);
 		assert.strictEqual(receipt.executionSummary, 'Applied file updates.');
 	});
 
@@ -80,6 +82,7 @@ suite('ReceiptCompleteness', () => {
 					assert.strictEqual(receipt.query, 'needle');
 					assert.strictEqual(receipt.maxResults, 5);
 					assert.strictEqual(receipt.resultCount, 1);
+					assert.strictEqual(receipt.matchCount, 1);
 					assert.strictEqual(receipt.executionSummary, 'Found 1 workspace search match.');
 				},
 			},
@@ -91,6 +94,8 @@ suite('ReceiptCompleteness', () => {
 					assert.strictEqual(receipt.resource?.toString(), testFileResource.toString());
 					assert.strictEqual(receipt.startLine, undefined);
 					assert.strictEqual(receipt.endLine, undefined);
+					assert.strictEqual(receipt.readEncoding, 'utf8');
+					assert.strictEqual(receipt.readContents, 'file contents');
 				},
 			},
 			{
@@ -100,6 +105,7 @@ suite('ReceiptCompleteness', () => {
 				expectedReceiptStatus: SessionActionReceiptStatus.Executed,
 				assertReceipt: receipt => {
 					assert.deepStrictEqual(receipt.filesTouched.map(file => file.toString()), [testFileResource.toString()]);
+					assert.strictEqual(receipt.writeOperations?.[0].status, 'updated');
 				},
 			},
 			{
@@ -109,7 +115,9 @@ suite('ReceiptCompleteness', () => {
 				expectedReceiptStatus: SessionActionReceiptStatus.Executed,
 				assertReceipt: receipt => {
 					assert.strictEqual(receipt.repositoryPath?.toString(), testRepositoryRoot.toString());
-					assert.ok(receipt.stdout?.includes('"head": "main"'));
+					assert.strictEqual(receipt.operation, 'git status');
+					assert.strictEqual(receipt.branch, 'main');
+					assert.ok(receipt.stdout?.includes('"branch": "main"'));
 				},
 			},
 			{
@@ -120,6 +128,7 @@ suite('ReceiptCompleteness', () => {
 				assertReceipt: receipt => {
 					assert.strictEqual(receipt.repositoryPath?.toString(), testRepositoryRoot.toString());
 					assert.strictEqual(receipt.ref, 'HEAD~1');
+					assert.strictEqual(receipt.operation, 'git diff HEAD~1');
 				},
 			},
 			{
@@ -135,6 +144,7 @@ suite('ReceiptCompleteness', () => {
 					assert.strictEqual(receipt.repositoryPath?.toString(), testRepositoryRoot.toString());
 					assert.strictEqual(receipt.worktreePath?.toString(), testWorktreeRoot.toString());
 					assert.strictEqual(receipt.branch, 'feature');
+					assert.strictEqual(receipt.operation, 'git worktree add');
 				},
 			},
 		];

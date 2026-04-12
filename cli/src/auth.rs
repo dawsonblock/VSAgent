@@ -3,6 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+#[cfg(target_os = "linux")]
+use crate::util::errors::CodeError;
 use crate::{
 	constants::{get_default_user_agent, APPLICATION_NAME, IS_INTERACTIVE_CLI, PRODUCT_NAME_LONG},
 	debug, error, info, log,
@@ -10,8 +12,7 @@ use crate::{
 	trace,
 	util::{
 		errors::{
-			wrap, AnyError, CodeError, OAuthError, RefreshTokenNotAvailableError, StatusError,
-			WrappedError,
+			wrap, AnyError, OAuthError, RefreshTokenNotAvailableError, StatusError, WrappedError,
 		},
 		input::prompt_options,
 	},
@@ -21,7 +22,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use gethostname::gethostname;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::{cell::Cell, fmt::Display, path::PathBuf, sync::Arc, thread};
+use std::{cell::Cell, fmt::Display, path::PathBuf, sync::Arc};
 use tokio::time::sleep;
 use tunnels::{
 	contracts::PROD_FIRST_PARTY_APP_ID,
@@ -226,10 +227,12 @@ const CONTINUE_MARKER: &str = "<MORE>";
 
 /// Implementation that wraps the KeyringStorage on Linux to avoid
 /// https://github.com/hwchen/keyring-rs/issues/132
+#[cfg(target_os = "linux")]
 struct ThreadKeyringStorage {
 	s: Option<KeyringStorage>,
 }
 
+#[cfg(target_os = "linux")]
 impl ThreadKeyringStorage {
 	fn thread_op<R, Fn>(&mut self, f: Fn) -> Result<R, AnyError>
 	where
@@ -246,9 +249,9 @@ impl ThreadKeyringStorage {
 		let (sender, receiver) = std::sync::mpsc::channel();
 		let tsender = sender.clone();
 
-		thread::spawn(move || sender.send(Some((f(&mut s), s))));
-		thread::spawn(move || {
-			thread::sleep(std::time::Duration::from_secs(5));
+		std::thread::spawn(move || sender.send(Some((f(&mut s), s))));
+		std::thread::spawn(move || {
+			std::thread::sleep(std::time::Duration::from_secs(5));
 			let _ = tsender.send(None);
 		});
 
@@ -262,6 +265,7 @@ impl ThreadKeyringStorage {
 	}
 }
 
+#[cfg(target_os = "linux")]
 impl Default for ThreadKeyringStorage {
 	fn default() -> Self {
 		Self {
@@ -270,6 +274,7 @@ impl Default for ThreadKeyringStorage {
 	}
 }
 
+#[cfg(target_os = "linux")]
 impl StorageImplementation for ThreadKeyringStorage {
 	fn read(&mut self) -> Result<Option<StoredCredential>, AnyError> {
 		self.thread_op(|s| s.read())

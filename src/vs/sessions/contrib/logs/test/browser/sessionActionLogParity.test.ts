@@ -7,7 +7,7 @@ import assert from 'assert';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { SessionActionReceipt, SessionActionReceiptStatus } from '../../../../services/actions/common/sessionActionReceipts.js';
-import { SessionActionDenialReason, SessionActionKind, SessionHostKind } from '../../../../services/actions/common/sessionActionTypes.js';
+import { SessionActionDenialReason, SessionActionKind, SessionHostKind, SessionWriteOperationStatus } from '../../../../services/actions/common/sessionActionTypes.js';
 import { formatSessionActionLogText, getSessionActionLogDetailItems } from '../../browser/sessionActionLogView.js';
 
 suite('SessionActionLogParity', () => {
@@ -31,9 +31,16 @@ suite('SessionActionLogParity', () => {
 			isRegexp: undefined,
 			maxResults: undefined,
 			resultCount: undefined,
+			matchCount: undefined,
+			searchMatches: undefined,
 			resource: undefined,
 			startLine: undefined,
 			endLine: undefined,
+			readContents: undefined,
+			readEncoding: undefined,
+			readByteSize: undefined,
+			readLineCount: undefined,
+			readIsPartial: undefined,
 			ref: undefined,
 			requestedScope: {
 				workspaceRoot: URI.file('/workspace'),
@@ -66,12 +73,19 @@ suite('SessionActionLogParity', () => {
 			completedAt: 10,
 			status: SessionActionReceiptStatus.Executed,
 			filesTouched: [URI.file('/workspace/repo/file.ts')],
+			operation: undefined,
+			operationCount: undefined,
+			writeOperations: undefined,
 			cwd: URI.file('/workspace/repo'),
 			repositoryPath: URI.file('/workspace/repo'),
 			worktreePath: URI.file('/workspace/repo-worktree'),
 			command: 'npm',
 			args: ['test'],
 			branch: 'feature',
+			filesChanged: undefined,
+			insertions: undefined,
+			deletions: undefined,
+			gitChanges: undefined,
 			stdout: 'ok',
 			stderr: '',
 			approvalSummary: 'Approved.',
@@ -106,26 +120,35 @@ suite('SessionActionLogParity', () => {
 				receipt: createReceipt(SessionActionKind.SearchWorkspace, {
 					query: 'needle',
 					resultCount: 3,
+					matchCount: 4,
+					searchMatches: [{ resource: URI.file('/workspace/repo/file.ts'), lineNumber: 2, lineNumbers: [2, 5], preview: 'needle', matchCount: 2 }],
 					executionSummary: 'Found 3 workspace search match(es).',
 				}),
-				expectedLabels: ['Status', 'Provider', 'Host', 'Query', 'Result Count'],
-				expectedText: ['| Executed | searchWorkspace | provider-1 | remote', 'Found 3 workspace search match(es).', '- Query: needle'],
+				expectedLabels: ['Status', 'Provider', 'Host', 'Query', 'Result Count', 'Match Count', 'Matches'],
+				expectedText: ['| Executed | searchWorkspace | provider-1 | remote', 'Found 3 workspace search match(es).', '- Query: needle', '- Match Count: 4'],
 			},
 			{
 				kind: SessionActionKind.ReadFile,
 				receipt: createReceipt(SessionActionKind.ReadFile, {
 					resource: URI.file('/workspace/repo/notes.md'),
+					readContents: 'line one',
+					readEncoding: 'utf8',
+					readByteSize: 8,
+					readLineCount: 1,
 					executionSummary: 'Read file.',
 				}),
-				expectedLabels: ['Status', 'Provider', 'Host', 'Resource'],
-				expectedText: ['| Executed | readFile | provider-1 | remote', 'Read file.', '- Resource: file:///workspace/repo/notes.md'],
+				expectedLabels: ['Status', 'Provider', 'Host', 'Resource', 'Encoding', 'Byte Size', 'Line Count', 'Contents'],
+				expectedText: ['| Executed | readFile | provider-1 | remote', 'Read file.', '- Resource: file:///workspace/repo/notes.md', '- Encoding: utf8'],
 			},
 			{
 				kind: SessionActionKind.WritePatch,
 				receipt: createReceipt(SessionActionKind.WritePatch, {
+					operation: 'workspace edit',
+					operationCount: 1,
+					writeOperations: [{ resource: URI.file('/workspace/repo/file.ts'), status: SessionWriteOperationStatus.Updated, bytesWritten: 12 }],
 					executionSummary: 'Applied file updates.',
 				}),
-				expectedLabels: ['Status', 'Provider', 'Host', 'Touched Files'],
+				expectedLabels: ['Status', 'Provider', 'Host', 'Operation', 'Operation Count', 'Touched Files', 'Write Operations'],
 				expectedText: ['| Executed | writePatch | provider-1 | remote', 'Applied file updates.', '- Touched Files: file:///workspace/repo/file.ts'],
 			},
 			{
@@ -141,22 +164,30 @@ suite('SessionActionLogParity', () => {
 			{
 				kind: SessionActionKind.GitStatus,
 				receipt: createReceipt(SessionActionKind.GitStatus, {
+					operation: 'git status',
+					branch: 'main',
+					filesChanged: 2,
 					executionSummary: 'Inspected git status.',
-					stdout: '{"head":"main"}',
+					stdout: '{"branch":"main"}',
 					stderr: 'git warning',
 				}),
-				expectedLabels: ['Status', 'Provider', 'Host', 'Repository', 'Stdout', 'Stderr'],
+				expectedLabels: ['Status', 'Provider', 'Host', 'Repository', 'Operation', 'Branch', 'Files Changed', 'Stdout', 'Stderr'],
 				expectedText: ['| Executed | gitStatus | provider-1 | remote', 'Inspected git status.', '- Repository: file:///workspace/repo'],
 			},
 			{
 				kind: SessionActionKind.GitDiff,
 				receipt: createReceipt(SessionActionKind.GitDiff, {
+					operation: 'git diff HEAD~1',
 					ref: 'HEAD~1',
+					filesChanged: 1,
+					insertions: 1,
+					deletions: 0,
+					gitChanges: [{ resource: URI.file('/workspace/repo/file.ts'), insertions: 1, deletions: 0 }],
 					executionSummary: 'Inspected git diff.',
 					stdout: 'file:///workspace/repo/file.ts (+1/-0)',
 					stderr: 'git diff warning',
 				}),
-				expectedLabels: ['Status', 'Provider', 'Host', 'Repository', 'Ref', 'Stdout', 'Stderr'],
+				expectedLabels: ['Status', 'Provider', 'Host', 'Repository', 'Operation', 'Ref', 'Files Changed', 'Insertions', 'Deletions', 'Changes', 'Stdout', 'Stderr'],
 				expectedText: ['| Executed | gitDiff | provider-1 | remote', 'Inspected git diff.', '- Ref: HEAD~1'],
 			},
 			{
@@ -164,10 +195,11 @@ suite('SessionActionLogParity', () => {
 				receipt: createReceipt(SessionActionKind.OpenWorktree, {
 					status: SessionActionReceiptStatus.Failed,
 					denialReason: SessionActionDenialReason.UnsupportedAction,
+					operation: 'git worktree add',
 					executionSummary: 'Worktree creation is not yet supported by the Sessions executor bridge.',
 					stderr: 'Worktree creation is not yet supported by the Sessions executor bridge.',
 				}),
-				expectedLabels: ['Status', 'Provider', 'Host', 'Repository', 'Worktree', 'Branch', 'Stdout', 'Stderr'],
+				expectedLabels: ['Status', 'Provider', 'Host', 'Repository', 'Operation', 'Worktree', 'Branch', 'Stdout', 'Stderr'],
 				expectedText: ['| Failed | openWorktree | provider-1 | remote', 'Worktree creation is not yet supported by the Sessions executor bridge.', '- Worktree: file:///workspace/repo-worktree'],
 			},
 		];

@@ -21,6 +21,7 @@ import { ISessionsProvidersService } from '../../sessions/browser/sessionsProvid
 import { ISessionAutonomousExecutionService, SessionAutonomousExecutionIssue, SessionAutonomousExecutionRequest, SessionAutonomousExecutionResult, SessionAutonomousStepResult } from '../common/sessionAutonomousExecutionService.js';
 import { ISessionBudgetService, SessionBudgetState } from '../common/sessionBudgetService.js';
 import { ISessionAutonomyPolicyService } from '../common/sessionAutonomyPolicyService.js';
+import { ISessionExecutionMemoryService } from '../../memory/common/sessionExecutionMemoryService.js';
 
 export class SessionAutonomousExecutionService extends Disposable implements ISessionAutonomousExecutionService {
 	declare readonly _serviceBrand: undefined;
@@ -34,6 +35,7 @@ export class SessionAutonomousExecutionService extends Disposable implements ISe
 		@ISessionCheckpointService private readonly _checkpointService: ISessionCheckpointService,
 		@ISessionEvaluationService private readonly _evaluationService: ISessionEvaluationService,
 		@ISessionActionService private readonly _sessionActionService: ISessionActionService,
+		@ISessionExecutionMemoryService private readonly _sessionExecutionMemoryService: ISessionExecutionMemoryService,
 		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
@@ -139,6 +141,7 @@ export class SessionAutonomousExecutionService extends Disposable implements ISe
 					evaluation,
 				};
 				stepResults.push(stepResult);
+				this._sessionExecutionMemoryService.recordStepResult(request.plan, stepResult);
 
 				if (evaluation.decision === AutonomyContinuationDecision.Continue) {
 					completed.add(nextStep.id);

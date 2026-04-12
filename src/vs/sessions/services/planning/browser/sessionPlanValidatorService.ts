@@ -5,12 +5,12 @@
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
-import { ApprovalRequirement, SessionActionDenialReason, WritePatchAction } from '../../actions/common/sessionActionTypes.js';
+import { ApprovalRequirement, SessionActionDenialReason, SessionActionKind, WritePatchAction } from '../../actions/common/sessionActionTypes.js';
 import { ISessionActionPolicyService } from '../../actions/browser/sessionActionPolicyService.js';
 import { ISessionActionScopeService } from '../../actions/common/sessionActionScope.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { ISessionPlanValidatorService, SessionPlanValidationContext, SessionPlanValidationIssue, SessionPlanValidationIssueCode, SessionPlanValidationResult } from '../common/sessionPlanValidatorService.js';
-import { isExecutableSessionPlanStepKind, isSessionPlanMutationRiskClass, sessionPlanStepKindToActionKind, SessionPlan, SessionPlanCheckpointRequirement, SessionPlanStep, SessionPlanStepKind } from '../common/sessionPlanTypes.js';
+import { estimateSessionPlanWritePatchModifiedFiles, estimateSessionPlanWritePatchWriteCount, isExecutableSessionPlanStepKind, isSessionPlanMutationRiskClass, isSessionPlanStepKindSupportedByExecutor, sessionPlanStepKindToActionKind, SessionPlan, SessionPlanCheckpointRequirement, SessionPlanStep, SessionPlanStepKind } from '../common/sessionPlanTypes.js';
 
 export class SessionPlanValidatorService extends Disposable implements ISessionPlanValidatorService {
 	declare readonly _serviceBrand: undefined;
@@ -33,7 +33,7 @@ export class SessionPlanValidatorService extends Disposable implements ISessionP
 
 		for (const step of plan.steps) {
 			this._validateStepShape(step, issues);
-			if (!isExecutableSessionPlanStepKind(step.kind)) {
+			if (!isExecutableSessionPlanStepKind(step.kind) || !isSessionPlanStepKindSupportedByExecutor(step.kind)) {
 				continue;
 			}
 
@@ -94,6 +94,14 @@ export class SessionPlanValidatorService extends Disposable implements ISessionP
 				});
 			}
 			return;
+		}
+
+		if (!isSessionPlanStepKindSupportedByExecutor(step.kind)) {
+			issues.push({
+				code: SessionPlanValidationIssueCode.UnsupportedAction,
+				stepId: step.id,
+				message: `Step '${step.kind}' is not yet supported because the Sessions executor bridge cannot create worktrees.`,
+			});
 		}
 
 		if (!step.action) {
@@ -213,29 +221,16 @@ export class SessionPlanValidatorService extends Disposable implements ISessionP
 
 	private _estimateFileWrites(step: SessionPlanStep): number {
 		const action = this._asWritePatchAction(step);
-		if (!action) {
-			return 0;
-		}
-
-		return action.operations?.length ?? action.files.length;
+		return estimateSessionPlanWritePatchWriteCount(action);
 	}
 
 	private _estimateModifiedFiles(step: SessionPlanStep): readonly URI[] {
 		const action = this._asWritePatchAction(step);
-		if (!action) {
-			return [];
-		}
-
-		return action.files;
+		return estimateSessionPlanWritePatchModifiedFiles(action);
 	}
 
 	private _asWritePatchAction(step: SessionPlanStep): WritePatchAction | undefined {
-		if (step.kind !== SessionPlanStepKind.WritePatch || !step.action) {
-			return undefined;
-		}
-
-		const expectedActionKind = sessionPlanStepKindToActionKind(step.kind);
-		if (step.action.kind !== expectedActionKind) {
+		if (step.kind !== SessionPlanStepKind.WritePatch || !step.action || step.action.kind !== SessionActionKind.WritePatch) {
 			return undefined;
 		}
 

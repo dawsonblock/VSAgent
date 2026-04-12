@@ -24,6 +24,10 @@ import { ISessionActionService } from '../../../../services/actions/common/sessi
 import { SessionAction, SessionActionKind, SessionActionStatus, SessionHostKind } from '../../../../services/actions/common/sessionActionTypes.js';
 import { ISessionAutonomousExecutionService } from '../../../../services/autonomy/common/sessionAutonomousExecutionService.js';
 import { AutonomyContinuationDecision, AutonomyStopReason, SessionAutonomyMode } from '../../../../services/autonomy/common/sessionAutonomyTypes.js';
+import { SessionExecutionMemoryService } from '../../../../services/memory/browser/sessionExecutionMemoryService.js';
+import { SessionExecutionSummaryService } from '../../../../services/memory/browser/sessionExecutionSummaryService.js';
+import { ISessionExecutionMemoryService, SessionExecutionPhase } from '../../../../services/memory/common/sessionExecutionMemoryService.js';
+import { ISessionExecutionSummaryService } from '../../../../services/memory/common/sessionExecutionSummaryService.js';
 import { ISessionPlanningService } from '../../../../services/planning/common/sessionPlanningService.js';
 import { getDefaultSessionPlanBudget, SessionPlanStatus, SessionPlanStepKind } from '../../../../services/planning/common/sessionPlanTypes.js';
 import { ISessionsProvidersService } from '../../browser/sessionsProvidersService.js';
@@ -204,6 +208,9 @@ suite('SessionsManagementService', () => {
 			},
 			...runtimeServices?.autonomousExecution,
 		});
+		const memoryService = new SessionExecutionMemoryService();
+		instantiationService.stub(ISessionExecutionMemoryService, memoryService);
+		instantiationService.stub(ISessionExecutionSummaryService, instantiationService.createInstance(SessionExecutionSummaryService));
 		return instantiationService;
 	}
 
@@ -432,6 +439,7 @@ suite('SessionsManagementService', () => {
 		});
 
 		const service = disposables.add(instantiationService.createInstance(SessionsManagementService));
+		await service.openSession(session.resource);
 		await service.sendAndCreateChat(session, {
 			query: 'Repair the repo',
 			advisoryAutonomy: {
@@ -445,6 +453,9 @@ suite('SessionsManagementService', () => {
 		assert.strictEqual(planningRequest.sessionId, session.sessionId);
 		assert.ok(autonomousExecutionRequest);
 		assert.strictEqual(autonomousExecutionRequest.plan, plan);
+		assert.strictEqual(service.activeAdvisoryPlan.get()?.id, plan.id);
+		assert.strictEqual(service.activeAdvisoryExecutionState.get()?.phase, SessionExecutionPhase.Completed);
+		assert.strictEqual(service.activeAdvisoryExecutionSummary.get()?.headline, 'Advisory Run Completed');
 		assert.deepStrictEqual(calls.sendRequests, [{ query: 'Repair the repo', attachedContext: undefined }]);
 	});
 });

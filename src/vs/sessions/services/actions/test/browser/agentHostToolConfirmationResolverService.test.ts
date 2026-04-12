@@ -14,7 +14,7 @@ import { TestInstantiationService } from '../../../../../platform/instantiation/
 import { IChatToolInvocation, ToolConfirmKind } from '../../../../../workbench/contrib/chat/common/chatService/chatService.js';
 import { AgentHostToolConfirmationSource } from '../../../../../workbench/contrib/chat/browser/agentSessions/agentHost/agentHostToolConfirmationResolverService.js';
 import { ISessionActionService } from '../../../../services/actions/common/sessionActionService.js';
-import { SessionAction, SessionActionKind, SessionActionRequestSource, SessionActionStatus, SessionHostKind } from '../../../../services/actions/common/sessionActionTypes.js';
+import { SessionAction, SessionActionKind, SessionActionRequestSource, SessionActionStatus, SessionHostKind, SessionWriteOperationStatus } from '../../../../services/actions/common/sessionActionTypes.js';
 import { IActiveSession, ISessionsManagementService } from '../../../../services/sessions/common/sessionsManagement.js';
 import { ISessionsProvidersService } from '../../../../services/sessions/browser/sessionsProvidersService.js';
 import { SessionStatus } from '../../../../services/sessions/common/session.js';
@@ -104,13 +104,19 @@ suite('SessionsAgentHostToolConfirmationResolverService', () => {
 		instantiationService.stub(ISessionActionService, {
 			approveAction: async (_sessionId: string, _providerId: string, action: SessionAction) => {
 				approvedAction = action;
+				const filesTouched = (action as Extract<SessionAction, { kind: SessionActionKind.WritePatch }>).files;
 				return {
 					actionId: 'approved-write',
 					kind: SessionActionKind.WritePatch,
 					status: SessionActionStatus.Approved,
 					advisorySources: [],
-					filesTouched: (action as Extract<SessionAction, { kind: SessionActionKind.WritePatch }>).files,
+					filesTouched,
 					applied: false,
+					operationCount: filesTouched.length,
+					operations: filesTouched.map(resource => ({
+						resource,
+						status: SessionWriteOperationStatus.Skipped,
+					})),
 				};
 			},
 		});

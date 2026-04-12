@@ -641,6 +641,10 @@
 			"project": "vscode-sessions"
 		},
 		{
+			"name": "vs/sessions/contrib/autonomy",
+			"project": "vscode-sessions"
+		},
+		{
 			"name": "vs/sessions/contrib/changes",
 			"project": "vscode-sessions"
 		},
