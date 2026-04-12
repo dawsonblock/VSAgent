@@ -92,9 +92,9 @@ export function formatSessionAutonomyStatusText(sessionLabel: string | undefined
 	if (summary?.progressLabel) {
 		lines.push(localize('sessionAutonomyStatusProgress', "Progress: {0}", summary.progressLabel));
 	}
-	const remainingBudget = formatRemainingBudget(entry);
-	if (remainingBudget) {
-		lines.push(localize('sessionAutonomyStatusBudgetRemaining', "Remaining budget: {0}", remainingBudget));
+	const remainingBudgetLine = formatRemainingBudget(entry);
+	if (remainingBudgetLine) {
+		lines.push(remainingBudgetLine);
 	}
 	const lastStepId = entry.lastReceipt?.planStepId ?? entry.lastStepResult?.stepId;
 	if (lastStepId) {
