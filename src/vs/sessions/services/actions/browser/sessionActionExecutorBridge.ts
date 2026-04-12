@@ -640,7 +640,7 @@ const boundedStartLine = Math.min(requestedStartLine, lineCount + 1);
 		}
 
 		try {
-			const contents = await this._fileService.readFile(plannedOperation.operation.resource, { limits: { size: MAX_SESSION_ACTION_READ_FILE_SIZE } });
+const contents = await this._fileService.readFile(plannedOperation.operation.resource, { limits: { size: Math.max(MAX_SESSION_ACTION_READ_FILE_SIZE, plannedOperation.bytesWritten ?? 0) } });
 			if (contents.value.toString() === plannedOperation.operation.contents) {
 				return {
 					resource: plannedOperation.operation.resource,
