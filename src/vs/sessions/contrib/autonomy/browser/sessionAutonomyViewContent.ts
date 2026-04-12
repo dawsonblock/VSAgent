@@ -155,7 +155,7 @@ function formatRemainingBudget(entry: SessionExecutionMemoryEntry): string | und
 	const remainingSteps = Math.max(0, budgetState.budget.maxSteps - budgetState.executedSteps);
 	const remainingCommands = Math.max(0, budgetState.budget.maxCommands - budgetState.executedCommands);
 	const remainingFileWrites = Math.max(0, budgetState.budget.maxFileWrites - budgetState.fileWrites);
-	const remainingModifiedFiles = Math.max(0, budgetState.budget.maxModifiedFiles - budgetState.modifiedFiles.length);
+const remainingModifiedFiles = Math.max(0, budgetState.budget.maxModifiedFiles - (budgetState.modifiedFiles?.length ?? 0));
 	const remainingFailures = Math.max(0, budgetState.budget.maxFailures - budgetState.failures);
 
 	return localize(
