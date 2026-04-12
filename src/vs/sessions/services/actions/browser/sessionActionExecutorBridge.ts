@@ -182,7 +182,7 @@ export class SessionActionExecutorBridge implements ISessionActionExecutorBridge
 			const lineCount = lines.length;
 			const requestedStartLine = Math.max(action.startLine ?? 1, 1);
 			const requestedEndLine = Math.max(action.endLine ?? lineCount, requestedStartLine);
-			const boundedStartLine = Math.min(requestedStartLine, Math.max(lineCount, 1));
+const boundedStartLine = Math.min(requestedStartLine, lineCount + 1);
 			const boundedEndLine = Math.min(requestedEndLine, Math.max(lineCount, 0));
 			const rangeRequested = typeof action.startLine === 'number' || typeof action.endLine === 'number';
 			const contents = rangeRequested
