@@ -471,7 +471,7 @@ The sessions appear animation applies only to the sidebar body (`.part.sidebar >
 The Agent Sessions workbench registers contributions via module imports in `sessions.desktop.main.ts` (and `sessions.common.main.ts`). Key contributions:
 
 | Contribution | Class | Phase | Location |
-|-------------|-------|-------|----------|
+| --- | --- | --- | --- |
 | Run Script | `RunScriptContribution` | `AfterRestored` | `contrib/chat/browser/runScriptAction.ts` |
 | Title Bar Widget | `SessionsTitleBarContribution` | `AfterRestored` | `contrib/sessions/browser/sessionsTitleBarWidget.ts` |
 | Account Widget | `AccountWidgetContribution` | `AfterRestored` | `contrib/accountMenu/browser/account.contribution.ts` |
@@ -488,6 +488,9 @@ The Changes view is registered in `contrib/changesView/browser/changesView.contr
 - **View**: `CHANGES_VIEW_ID` with `ChangesViewPane`
 - **Window visibility**: `WindowVisibility.Sessions` (only visible in agent sessions workbench)
 
+
+
+
 ### 10.2 Sessions View
 
 The Sessions view is registered in `contrib/sessions/browser/sessions.contribution.ts`:
@@ -497,11 +500,14 @@ The Sessions view is registered in `contrib/sessions/browser/sessions.contributi
 - **Window visibility**: `WindowVisibility.Sessions`
 - **Primary action**: The sidebar content starts with a left-aligned secondary "New Session" button rendered as `$(plus) Session`, with an inline shortcut hint that reflects the active `workbench.action.sessions.newChat` keybinding when one is available
 
+
+
+
 ---
 
 ## 11. File Structure
 
-```
+```text
 src/vs/sessions/
 ├── README.md                               # Layer specification
 ├── LAYOUT.md                               # This specification
@@ -644,7 +650,7 @@ interface IPartVisibilityState {
 **Initial state:**
 
 | Part | Initial Visibility |
-|------|--------------------|
+| --- | --- |
 | Sidebar | `true` (visible) |
 | Auxiliary Bar | `true` (visible) |
 | Chat Bar | `true` (visible) |
@@ -662,7 +668,7 @@ interface IPartVisibilityState {
 ## Revision History
 
 | Date | Change |
-|------|--------|
+| --- | --- |
 | 2026-04-11 | Added a dedicated Sessions Autonomy panel container with read-only Status, Plan, and Summary views backed by Sessions-owned advisory execution memory and derived summaries. |
 | 2026-04-08 | Darkened the light-theme-only chat, auxiliary bar, and panel card borders with a sessions-specific CSS `border-color` override that uses `editorWidget.border`; dark and high-contrast themes continue using the existing part border tokens. |
 | 2026-04-04 | Inverted the default light-theme surface mapping so the sessions window background uses the off-white workbench/sidebar surface while the chat, changes, and panel cards use the brighter editor background; dark and high-contrast mappings remain unchanged. |
