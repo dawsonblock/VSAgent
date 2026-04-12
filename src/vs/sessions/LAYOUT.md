@@ -217,7 +217,6 @@ The setting `workbench.editor.useModal` is an enum with three values:
 - `'some'`: Certain editors (e.g. Settings, Keyboard Shortcuts) may open in a modal overlay when requested via `MODAL_GROUP`
 - `'all'`: All editors open in a modal overlay (used by agent sessions window)
 
-
 ---
 
 ## 5. Feature Support Matrix
@@ -254,6 +253,7 @@ setPartHidden(hidden: boolean, part: Parts): void
 ```
 
 **Behavior:**
+
 - Hiding a part also hides its active pane composite
 - Showing a part restores the last active pane composite
 - **Panel Part:**
@@ -488,9 +488,6 @@ The Changes view is registered in `contrib/changesView/browser/changesView.contr
 - **View**: `CHANGES_VIEW_ID` with `ChangesViewPane`
 - **Window visibility**: `WindowVisibility.Sessions` (only visible in agent sessions workbench)
 
-
-
-
 ### 10.2 Sessions View
 
 The Sessions view is registered in `contrib/sessions/browser/sessions.contribution.ts`:
@@ -499,9 +496,6 @@ The Sessions view is registered in `contrib/sessions/browser/sessions.contributi
 - **View**: `SessionsViewId` with `SessionsView` (`contrib/sessions/browser/views/sessionsView.ts`)
 - **Window visibility**: `WindowVisibility.Sessions`
 - **Primary action**: The sidebar content starts with a left-aligned secondary "New Session" button rendered as `$(plus) Session`, with an inline shortcut hint that reflects the active `workbench.action.sessions.newChat` keybinding when one is available
-
-
-
 
 ---
 
@@ -587,9 +581,9 @@ When modifying the Agent Sessions layout:
 3. **Sidebar spans full window height** — Sidebar is at the root grid level, spanning from top to bottom independently of the titlebar
 4. **New parts go in right section** — Any new parts should be added to the right section alongside Titlebar, Chat Bar, and Auxiliary Bar
 5. **Update this spec** — All changes must be documented here
-5. **Preserve no-op methods** — Unsupported features should remain as no-ops, not throw errors
-6. **Handle pane composite lifecycle** — When hiding/showing parts, manage the associated pane composites
-7. **Use agent session parts** — New functionality for parts should be added to the agent session part classes, not the standard parts
+6. **Preserve no-op methods** — Unsupported features should remain as no-ops, not throw errors
+7. **Handle pane composite lifecycle** — When hiding/showing parts, manage the associated pane composites
+8. **Use agent session parts** — New functionality for parts should be added to the agent session part classes, not the standard parts
 
 ---
 
@@ -688,7 +682,8 @@ interface IPartVisibilityState {
 | 2026-02-11 | Removed activity actions (Accounts, Manage) from titlebar; Added `AgenticAccount` submenu to `TitleBarRight` with account icon; Menu shows signed-in user label from `IDefaultAccountService` (or Sign In action if no account), Settings, and Check for Updates; Added `AgenticAccountContribution` workbench contribution for dynamic account state; Added `AgenticAccount` menu ID to `Menus` |
 | 2026-02-10 | Titlebar customization now uses class inheritance with protected getter overrides on `BrowserTitlebarPart`; Base class retains original API — no `ITitlebarPartOptions`/`ITitlebarPartConfiguration` removed; `AgenticTitlebarPart` and `AgenticTitleService` in `parts/agenticTitlebarPart.ts` override `isCommandCenterVisible`, `editorActionsEnabled`, `installMenubar()`, and menu ID getters |
 | 2026-02-07 | Comprehensive spec update: fixed widget class names (`AgenticTitleBarWidget`/`AgenticTitleBarContribution`), corrected click behavior (uses `AgentSessionsPicker` not `FocusAgentSessionsAction`), corrected session label source (`IActiveSessionService`), fixed toggle terminal details (uses standard `toggleTerminal` command via `MenuRegistry.appendMenuItem` on right toolbar), added sidebar/chatbar storage keys, added chatbar to part classes table, documented contributions section with `RunScriptContribution`/`AgenticTitleBarContribution`/Changes view, added `agent-sessions-workbench` platform class, documented auxiliary bar run script dropdown, updated file structure with `actions/`, `views/`, `media/` directories, fixed lifecycle section numbering, corrected `focus()` target to ChatBar |
-| 2026-02-07 | Moved `ToggleTerminalAction` to `contrib/terminal/browser/terminalAgentSessionActions.ts`; Menu item registered via `MenuRegistry.appendMenuItem` from `agenticLayoutActions.ts` to avoid layering violation |\n| 2026-02-07 | Added `TitleBarLeft`, `TitleBarCenter`, `TitleBarRight` menu IDs to `AgenticWorkbenchMenus`; Added `titleBarMenuId` option to `ITitlebarPartOptions` for overriding the global toolbar menu; Actions now use agent-session-specific menu IDs instead of shared `MenuId.TitleBarLeft` / `MenuId.TitleBar` |
+| 2026-02-07 | Moved `ToggleTerminalAction` to `contrib/terminal/browser/terminalAgentSessionActions.ts`; Menu item registered via `MenuRegistry.appendMenuItem` from `agenticLayoutActions.ts` to avoid layering violation |
+| 2026-02-07 | Added `TitleBarLeft`, `TitleBarCenter`, `TitleBarRight` menu IDs to `AgenticWorkbenchMenus`; Added `titleBarMenuId` option to `ITitlebarPartOptions` for overriding the global toolbar menu; Actions now use agent-session-specific menu IDs instead of shared `MenuId.TitleBarLeft` / `MenuId.TitleBar` |
 | 2026-02-07 | Moved agent sessions workbench menu IDs to `agenticWorkbenchMenus.ts`; Renamed `AgentSessionMenus` to `AgenticWorkbenchMenus` |
 | 2026-02-07 | Added `MenuId.AgentSessionsTitleBarContext` as a separate titlebar context menu ID; `contextMenuId` option now set in both main and auxiliary titlebar configurations |
 | 2026-02-07 | Added `ToggleTerminalAction` to left toolbar; toggles panel with terminal view; bound to `` Ctrl+` `` |

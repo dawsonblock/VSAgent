@@ -3,6 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+#[cfg(target_os = "linux")]
+use crate::util::errors::CodeError;
 use crate::{
 	constants::{get_default_user_agent, APPLICATION_NAME, IS_INTERACTIVE_CLI, PRODUCT_NAME_LONG},
 	debug, error, info, log,
@@ -10,8 +12,7 @@ use crate::{
 	trace,
 	util::{
 		errors::{
-			wrap, AnyError, CodeError, OAuthError, RefreshTokenNotAvailableError, StatusError,
-			WrappedError,
+			wrap, AnyError, OAuthError, RefreshTokenNotAvailableError, StatusError, WrappedError,
 		},
 		input::prompt_options,
 	},
