@@ -187,9 +187,9 @@ export class SessionExecutionMemoryService extends Disposable implements ISessio
 
 		const completedStepIds = this._mergeCompletedStepIds(current.progress?.completedStepIds, [receipt.planStepId]);
 		const nextPhase = current.result ? sessionPlanStatusToExecutionPhase(current.result.status) : SessionExecutionPhase.Executing;
-		const errorMessage = receipt.status === SessionActionReceiptStatus.Denied || receipt.status === SessionActionReceiptStatus.Failed
+const errorMessage = receipt.status === SessionActionReceiptStatus.Denied || receipt.status === SessionActionReceiptStatus.Failed
 			? (receipt.executionSummary ?? receipt.error?.message ?? current.errorMessage)
-			: undefined;
+			: current.errorMessage;
 
 		this._getOrCreateEntry(receipt.sessionId).set({
 			...current,
