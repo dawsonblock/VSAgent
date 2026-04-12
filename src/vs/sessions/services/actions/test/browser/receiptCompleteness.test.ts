@@ -181,4 +181,23 @@ suite('ReceiptCompleteness', () => {
 		assert.ok(receipt.error?.message.includes('not permitted by the active Sessions policy'));
 		assert.ok(receipt.completedAt !== undefined);
 	});
+
+	test('receipts preserve advisory execution trace metadata when actions provide it', async () => {
+		const harness = createSessionActionHarness(disposables);
+
+		const result = await harness.service.submitAction(testSessionId, testProviderId, {
+			...createActionForKind(SessionActionKind.ReadFile),
+			trace: {
+				planId: 'plan-1',
+				planStepId: 'step-1',
+				checkpointId: 'checkpoint-1',
+			},
+		});
+		const receipt = harness.service.getReceiptsForSession(testSessionId)[0];
+
+		assert.strictEqual(result.status, SessionActionStatus.Executed);
+		assert.strictEqual(receipt.planId, 'plan-1');
+		assert.strictEqual(receipt.planStepId, 'step-1');
+		assert.strictEqual(receipt.checkpointId, 'checkpoint-1');
+	});
 });

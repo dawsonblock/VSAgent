@@ -19,7 +19,7 @@ export interface SessionEvaluationRequest {
 	readonly plan: SessionPlan;
 	readonly step: SessionPlanStep;
 	readonly result: SessionActionResult;
-	readonly receipt?: SessionActionReceipt;
+	readonly receipt: SessionActionReceipt;
 	readonly checkpoint?: SessionCheckpoint;
 	readonly budgetState: SessionBudgetState;
 }

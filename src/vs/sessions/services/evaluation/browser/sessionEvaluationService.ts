@@ -111,9 +111,9 @@ export class SessionEvaluationService extends Disposable implements ISessionEval
 
 		switch (request.result.kind) {
 			case SessionActionKind.ReadFile:
-				return !expectedFiles.has(request.result.resource.toString());
+				return request.receipt.resource ? !expectedFiles.has(request.receipt.resource.toString()) : false;
 			case SessionActionKind.WritePatch: {
-				const filesTouched = request.receipt?.filesTouched ?? (request.result as WritePatchActionResult).filesTouched;
+				const filesTouched = request.receipt.filesTouched.length > 0 ? request.receipt.filesTouched : (request.result as WritePatchActionResult).filesTouched;
 				return filesTouched.some(resource => !expectedFiles.has(resource.toString()));
 			}
 			default:
@@ -130,23 +130,23 @@ export class SessionEvaluationService extends Disposable implements ISessionEval
 
 		switch (request.result.kind) {
 			case SessionActionKind.SearchWorkspace:
-				return (receipt?.matchCount ?? request.result.matchCount ?? request.result.resultCount ?? 0) > 0;
+				return (receipt.matchCount ?? receipt.resultCount ?? 0) > 0;
 			case SessionActionKind.ReadFile: {
-				const contents = receipt?.readContents ?? request.result.contents;
-				const lineCount = receipt?.readLineCount ?? request.result.lineCount;
+				const contents = receipt.readContents;
+				const lineCount = receipt.readLineCount;
 				return (typeof contents === 'string' && contents.length > 0) || (typeof lineCount === 'number' && lineCount > 0);
 			}
 			case SessionActionKind.WritePatch:
 				return this._getSuccessfulWriteCount(request) > 0;
 			case SessionActionKind.RunCommand:
-				return request.result.exitCode === undefined || request.result.exitCode === 0;
+				return receipt.exitCode === undefined || receipt.exitCode === 0;
 			case SessionActionKind.GitStatus:
-				return typeof (receipt?.filesChanged ?? request.result.filesChanged) === 'number' || Boolean(receipt?.operation ?? request.result.operation);
+				return typeof receipt.filesChanged === 'number' || Boolean(receipt.operation);
 			case SessionActionKind.GitDiff: {
-				const filesChanged = receipt?.filesChanged ?? request.result.filesChanged ?? 0;
-				const insertions = receipt?.insertions ?? request.result.insertions ?? 0;
-				const deletions = receipt?.deletions ?? request.result.deletions ?? 0;
-				return filesChanged > 0 || insertions > 0 || deletions > 0 || Boolean(receipt?.stdout ?? request.result.stdout);
+				const filesChanged = receipt.filesChanged ?? 0;
+				const insertions = receipt.insertions ?? 0;
+				const deletions = receipt.deletions ?? 0;
+				return filesChanged > 0 || insertions > 0 || deletions > 0 || Boolean(receipt.stdout);
 			}
 			case SessionActionKind.OpenWorktree:
 				return request.result.opened === true;
@@ -160,7 +160,7 @@ export class SessionEvaluationService extends Disposable implements ISessionEval
 			return 0;
 		}
 
-		const writeOperations = request.receipt?.writeOperations ?? request.result.operations;
+		const writeOperations = request.receipt.writeOperations ?? request.result.operations;
 		if (writeOperations && writeOperations.length > 0) {
 			return writeOperations.filter(operation => operation.status === SessionWriteOperationStatus.Created || operation.status === SessionWriteOperationStatus.Updated || operation.status === SessionWriteOperationStatus.Deleted).length;
 		}

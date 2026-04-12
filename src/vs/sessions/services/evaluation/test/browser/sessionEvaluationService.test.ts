@@ -7,6 +7,7 @@ import assert from 'assert';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { SessionActionReceipt, SessionActionReceiptStatus } from '../../../actions/common/sessionActionReceipts.js';
 import { SessionActionDenialReason, SessionActionKind, SessionActionRequestSource, SessionActionStatus, SessionHostKind } from '../../../actions/common/sessionActionTypes.js';
 import { SessionBudgetService } from '../../../autonomy/browser/sessionBudgetService.js';
 import { AutonomyContinuationDecision, AutonomyStopReason } from '../../../autonomy/common/sessionAutonomyTypes.js';
@@ -47,6 +48,12 @@ suite('SessionEvaluationService', () => {
 				contents: 'contents',
 				summary: 'Read file.',
 			},
+			receipt: createReceipt(SessionActionKind.ReadFile, {
+				resource: file,
+				readContents: 'contents',
+				readLineCount: 1,
+				status: SessionActionReceiptStatus.Executed,
+			}),
 			budgetState: budgetService.createBudgetState(getDefaultSessionPlanBudget()),
 		});
 
@@ -88,6 +95,13 @@ suite('SessionEvaluationService', () => {
 				denialMessage: 'Blocked by policy.',
 				summary: 'Blocked by policy.',
 			},
+			receipt: createReceipt(SessionActionKind.RunCommand, {
+				status: SessionActionReceiptStatus.Denied,
+				command: 'npm test',
+				args: [],
+				denialReason: SessionActionDenialReason.PolicyDenied,
+				executionSummary: 'Blocked by policy.',
+			}),
 			budgetState: budgetService.createBudgetState(getDefaultSessionPlanBudget()),
 		});
 
@@ -130,6 +144,12 @@ suite('SessionEvaluationService', () => {
 				operations: [],
 				summary: 'Patched file.',
 			},
+			receipt: createReceipt(SessionActionKind.WritePatch, {
+				status: SessionActionReceiptStatus.Executed,
+				filesTouched: [outsideFile],
+				operationCount: 1,
+				executionSummary: 'Patched file.',
+			}),
 			budgetState: budgetService.createBudgetState(getDefaultSessionPlanBudget()),
 		});
 
@@ -175,6 +195,16 @@ suite('SessionEvaluationService', () => {
 				stdout: '',
 				summary: 'Inspected git diff.',
 			},
+			receipt: createReceipt(SessionActionKind.GitDiff, {
+				status: SessionActionReceiptStatus.Executed,
+				repositoryPath: repository,
+				ref: 'HEAD~1',
+				filesChanged: 0,
+				insertions: 0,
+				deletions: 0,
+				stdout: '',
+				executionSummary: 'Inspected git diff.',
+			}),
 			budgetState: budgetService.createBudgetState(getDefaultSessionPlanBudget()),
 		});
 
@@ -221,6 +251,15 @@ suite('SessionEvaluationService', () => {
 				denialMessage: 'Worktree creation is not yet supported by the Sessions executor bridge.',
 				summary: 'Worktree creation is not yet supported by the Sessions executor bridge.',
 			},
+			receipt: createReceipt(SessionActionKind.OpenWorktree, {
+				status: SessionActionReceiptStatus.Failed,
+				repositoryPath: repository,
+				worktreePath,
+				branch: 'repair',
+				operation: 'git worktree add',
+				denialReason: SessionActionDenialReason.UnsupportedAction,
+				executionSummary: 'Worktree creation is not yet supported by the Sessions executor bridge.',
+			}),
 			budgetState: budgetService.createBudgetState(getDefaultSessionPlanBudget()),
 		});
 
@@ -244,5 +283,37 @@ function createPlan() {
 		budget: getDefaultSessionPlanBudget(),
 		createdAt: 1,
 		updatedAt: 1,
+	};
+}
+
+function createReceipt(actionKind: SessionActionKind, overrides: Partial<SessionActionReceipt> = {}): SessionActionReceipt {
+	const hostTarget = {
+		kind: SessionHostKind.Local,
+		providerId: 'provider-1',
+	};
+
+	return {
+		id: 'receipt-1',
+		sessionId: 'session-1',
+		providerId: 'provider-1',
+		hostKind: SessionHostKind.Local,
+		hostTarget,
+		actionId: 'action-1',
+		actionKind,
+		requestedScope: {
+			files: [],
+			hostTarget,
+		},
+		approvedScope: {
+			files: [],
+			hostTarget,
+		},
+		requestedAt: 1,
+		decidedAt: 2,
+		completedAt: 3,
+		status: SessionActionReceiptStatus.Executed,
+		filesTouched: [],
+		advisorySources: [],
+		...overrides,
 	};
 }

@@ -20,6 +20,8 @@ import { IUriIdentityService } from '../../../../../platform/uriIdentity/common/
 import { CommandsRegistry } from '../../../../../platform/commands/common/commands.js';
 import { IChatWidgetService } from '../../../../../workbench/contrib/chat/browser/chat.js';
 import { TestStorageService } from '../../../../../workbench/test/common/workbenchTestServices.js';
+import { SessionActionReceiptService } from '../../../../services/actions/browser/sessionActionReceiptService.js';
+import { ISessionActionReceiptService } from '../../../../services/actions/common/sessionActionReceipts.js';
 import { ISessionActionService } from '../../../../services/actions/common/sessionActionService.js';
 import { SessionAction, SessionActionKind, SessionActionStatus, SessionHostKind } from '../../../../services/actions/common/sessionActionTypes.js';
 import { ISessionAutonomousExecutionService } from '../../../../services/autonomy/common/sessionAutonomousExecutionService.js';
@@ -208,7 +210,9 @@ suite('SessionsManagementService', () => {
 			},
 			...runtimeServices?.autonomousExecution,
 		});
-		const memoryService = new SessionExecutionMemoryService();
+		const receiptService: ISessionActionReceiptService = disposables.add(new SessionActionReceiptService());
+		instantiationService.stub(ISessionActionReceiptService, receiptService);
+		const memoryService = disposables.add(new SessionExecutionMemoryService(receiptService));
 		instantiationService.stub(ISessionExecutionMemoryService, memoryService);
 		instantiationService.stub(ISessionExecutionSummaryService, instantiationService.createInstance(SessionExecutionSummaryService));
 		return instantiationService;

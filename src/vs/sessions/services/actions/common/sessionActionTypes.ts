@@ -96,12 +96,19 @@ export interface SessionActionExecutionContext {
 	readonly sessionType?: string;
 }
 
+export interface SessionActionExecutionTrace {
+	readonly planId: string;
+	readonly planStepId: string;
+	readonly checkpointId?: string;
+}
+
 interface SessionActionBase {
 	readonly id?: string;
 	readonly kind: SessionActionKind;
 	readonly requestedBy: SessionActionRequestSource;
 	readonly summary?: string;
 	readonly advisorySources?: readonly string[];
+	readonly trace?: SessionActionExecutionTrace;
 	readonly scope?: SessionActionScope;
 }
 

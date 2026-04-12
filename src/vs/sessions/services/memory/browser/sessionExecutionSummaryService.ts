@@ -65,13 +65,16 @@ export function createSessionExecutionSummary(entry: SessionExecutionMemoryEntry
 			break;
 		case SessionExecutionPhase.Executing:
 			headline = localize('sessionExecutionSummaryExecutingHeadline', "Executing Advisory Steps");
-			detail = entry.lastStepResult?.evaluation.summary
+			detail = entry.lastReceipt?.executionSummary
+				?? entry.lastReceipt?.error?.message
+				?? entry.lastStepResult?.evaluation.summary
 				?? entry.lastStepResult?.result.summary
 				?? defaultDetail;
 			break;
 		case SessionExecutionPhase.Completed:
 			headline = localize('sessionExecutionSummaryCompletedHeadline', "Advisory Run Completed");
 			detail = entry.result?.reasons[0]
+				?? entry.lastReceipt?.executionSummary
 				?? entry.lastStepResult?.evaluation.summary
 				?? localize('sessionExecutionSummaryCompletedDetail', "The advisory run completed successfully.");
 			break;

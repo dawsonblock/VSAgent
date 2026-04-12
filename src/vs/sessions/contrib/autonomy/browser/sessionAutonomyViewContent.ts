@@ -86,14 +86,25 @@ export function formatSessionAutonomyStatusText(sessionLabel: string | undefined
 	}
 
 	lines.push(localize('sessionAutonomyStatusPhase', "Phase: {0}", formatPhase(entry.phase)));
+	if (entry.mode) {
+		lines.push(localize('sessionAutonomyStatusMode', "Mode: {0}", entry.mode));
+	}
 	if (summary?.progressLabel) {
 		lines.push(localize('sessionAutonomyStatusProgress', "Progress: {0}", summary.progressLabel));
 	}
-	if (entry.lastStepResult) {
-		lines.push(localize('sessionAutonomyStatusLastStep', "Last step: {0}", entry.lastStepResult.stepId));
-		if (entry.lastStepResult.evaluation.summary) {
+	const remainingBudget = formatRemainingBudget(entry);
+	if (remainingBudget) {
+		lines.push(localize('sessionAutonomyStatusBudgetRemaining', "Remaining budget: {0}", remainingBudget));
+	}
+	const lastStepId = entry.lastReceipt?.planStepId ?? entry.lastStepResult?.stepId;
+	if (lastStepId) {
+		lines.push(localize('sessionAutonomyStatusLastStep', "Last step: {0}", lastStepId));
+		if (entry.lastStepResult?.evaluation.summary) {
 			lines.push(localize('sessionAutonomyStatusLastEvaluation', "Last evaluation: {0}", entry.lastStepResult.evaluation.summary));
 		}
+	}
+	if (entry.lastReceipt?.executionSummary) {
+		lines.push(localize('sessionAutonomyStatusLastAction', "Last action: {0}", entry.lastReceipt.executionSummary));
 	}
 	if (entry.result?.stopReason) {
 		lines.push(localize('sessionAutonomyStatusStopReason', "Stop reason: {0}", entry.result.stopReason));
@@ -133,4 +144,27 @@ function formatPhase(phase: SessionExecutionPhase): string {
 
 function formatTimestamp(value: number): string {
 	return new Date(value).toISOString();
+}
+
+function formatRemainingBudget(entry: SessionExecutionMemoryEntry): string | undefined {
+	const budgetState = entry.budgetState ?? entry.result?.budgetState;
+	if (!budgetState) {
+		return undefined;
+	}
+
+	const remainingSteps = Math.max(0, budgetState.budget.maxSteps - budgetState.executedSteps);
+	const remainingCommands = Math.max(0, budgetState.budget.maxCommands - budgetState.executedCommands);
+	const remainingFileWrites = Math.max(0, budgetState.budget.maxFileWrites - budgetState.fileWrites);
+	const remainingModifiedFiles = Math.max(0, budgetState.budget.maxModifiedFiles - budgetState.modifiedFiles.length);
+	const remainingFailures = Math.max(0, budgetState.budget.maxFailures - budgetState.failures);
+
+	return localize(
+		'sessionAutonomyStatusBudgetRemainingValue',
+		"{0} steps, {1} commands, {2} file writes, {3} modified files, {4} failures",
+		remainingSteps,
+		remainingCommands,
+		remainingFileWrites,
+		remainingModifiedFiles,
+		remainingFailures,
+	);
 }

@@ -470,6 +470,7 @@ export class SessionsManagementService extends Disposable implements ISessionsMa
 		this._sessionExecutionMemoryService.beginPlanning({
 			sessionId: session.sessionId,
 			providerId: session.providerId,
+			mode: advisoryAutonomy.mode,
 			intent: options.query,
 			summary: advisoryAutonomy.summary,
 		});
