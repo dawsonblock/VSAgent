@@ -113,7 +113,7 @@ export class SessionEvaluationService extends Disposable implements ISessionEval
 			case SessionActionKind.ReadFile:
 				return request.receipt.resource ? !expectedFiles.has(request.receipt.resource.toString()) : false;
 			case SessionActionKind.WritePatch: {
-				const filesTouched = request.receipt.filesTouched.length > 0 ? request.receipt.filesTouched : (request.result as WritePatchActionResult).filesTouched;
+const filesTouched = request.receipt.filesTouched;
 				return filesTouched.some(resource => !expectedFiles.has(resource.toString()));
 			}
 			default:
