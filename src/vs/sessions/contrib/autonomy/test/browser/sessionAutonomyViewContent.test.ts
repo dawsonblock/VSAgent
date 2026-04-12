@@ -6,8 +6,9 @@
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { getDefaultSessionPlanBudget, SessionPlanCheckpointRequirement, SessionPlanStatus, SessionPlanStepKind } from '../../../../services/planning/common/sessionPlanTypes.js';
-import { SessionHostKind } from '../../../../services/actions/common/sessionActionTypes.js';
-import { AutonomyContinuationDecision, AutonomyStopReason } from '../../../../services/autonomy/common/sessionAutonomyTypes.js';
+import { SessionActionKind, SessionHostKind } from '../../../../services/actions/common/sessionActionTypes.js';
+import { AutonomyContinuationDecision, AutonomyStopReason, SessionAutonomyMode } from '../../../../services/autonomy/common/sessionAutonomyTypes.js';
+import { SessionActionReceiptStatus } from '../../../../services/actions/common/sessionActionReceipts.js';
 import { SessionExecutionPhase } from '../../../../services/memory/common/sessionExecutionMemoryService.js';
 import { formatSessionAutonomyStatusText, formatSessionExecutionSummaryText, formatSessionPlanText } from '../../browser/sessionAutonomyViewContent.js';
 
@@ -69,6 +70,7 @@ suite('SessionAutonomyViewContent', () => {
 		const text = formatSessionAutonomyStatusText('Fix login flow', {
 			sessionId: 'session-1',
 			providerId: 'provider-1',
+			mode: SessionAutonomyMode.RepoRepair,
 			phase: SessionExecutionPhase.Stopped,
 			plan,
 			result: {
@@ -93,11 +95,57 @@ suite('SessionAutonomyViewContent', () => {
 				issues: [{ stepId: 'search', message: 'The advisory run exceeded the file budget.' }],
 				reasons: [],
 			},
+			budgetState: {
+				budget: getDefaultSessionPlanBudget(),
+				startedAt: 1,
+				executedSteps: 1,
+				executedCommands: 0,
+				fileWrites: 0,
+				modifiedFiles: [],
+				failures: 0,
+				attemptsByStep: {},
+				elapsedMs: 10,
+			},
 			progress: {
 				totalSteps: 2,
 				completedSteps: 1,
 				completedStepIds: ['search'],
 				lastStepId: 'search',
+			},
+			lastReceipt: {
+				id: 'receipt-1',
+				sessionId: 'session-1',
+				providerId: 'provider-1',
+				hostKind: SessionHostKind.Local,
+				hostTarget: {
+					kind: SessionHostKind.Local,
+					providerId: 'provider-1',
+				},
+				actionId: 'action-1',
+				actionKind: SessionActionKind.SearchWorkspace,
+				planId: 'plan-1',
+				planStepId: 'search',
+				requestedScope: {
+					files: [],
+					hostTarget: {
+						kind: SessionHostKind.Local,
+						providerId: 'provider-1',
+					},
+				},
+				approvedScope: {
+					files: [],
+					hostTarget: {
+						kind: SessionHostKind.Local,
+						providerId: 'provider-1',
+					},
+				},
+				requestedAt: 1,
+				decidedAt: 2,
+				completedAt: 3,
+				status: SessionActionReceiptStatus.Executed,
+				filesTouched: [],
+				advisorySources: [],
+				executionSummary: 'Read file.',
 			},
 			errorMessage: undefined,
 			startedAt: 1,
@@ -112,7 +160,10 @@ suite('SessionAutonomyViewContent', () => {
 
 		assert.ok(text.includes('Advisory status for Fix login flow'));
 		assert.ok(text.includes('Phase: Stopped'));
+		assert.ok(text.includes('Mode: repo_repair'));
 		assert.ok(text.includes('Progress: 1/2 steps'));
+		assert.ok(text.includes('Remaining budget: 11 steps, 4 commands, 20 file writes, 20 modified files, 3 failures'));
+		assert.ok(text.includes('Last action: Read file.'));
 		assert.ok(text.includes('Stop reason: budgetExceeded'));
 		assert.ok(text.includes('First issue: The advisory run exceeded the file budget.'));
 	});

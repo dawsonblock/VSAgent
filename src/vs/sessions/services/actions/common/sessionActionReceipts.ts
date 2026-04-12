@@ -50,6 +50,9 @@ export interface SessionActionReceipt {
 	readonly hostTarget: NormalizedHostTarget;
 	readonly actionId: string;
 	readonly actionKind: SessionActionKind;
+	readonly planId?: string;
+	readonly planStepId?: string;
+	readonly checkpointId?: string;
 	readonly query?: string;
 	readonly includePattern?: string;
 	readonly isRegexp?: boolean;

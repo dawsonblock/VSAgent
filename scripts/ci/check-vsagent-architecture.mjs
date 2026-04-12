@@ -204,8 +204,29 @@ for (const proofFile of [
 }
 
 assertFileContainsAll(
+	'src/vs/sessions/services/actions/common/sessionActionTypes.ts',
+	[
+		'readonly trace?: SessionActionExecutionTrace;',
+	],
+	'trace metadata transport'
+);
+
+assertFileContainsAll(
+	'src/vs/sessions/services/actions/browser/sessionActionService.ts',
+	[
+		'planId: options.action.trace?.planId',
+		'planStepId: options.action.trace?.planStepId',
+		'checkpointId: options.action.trace?.checkpointId',
+	],
+	'receipt traceability'
+);
+
+assertFileContainsAll(
 	'src/vs/sessions/services/actions/common/sessionActionReceipts.ts',
 	[
+		'readonly planId?: string;',
+		'readonly planStepId?: string;',
+		'readonly checkpointId?: string;',
 		'readonly query?: string;',
 		'readonly resultCount?: number;',
 		'readonly resource?: URI;',
@@ -214,6 +235,36 @@ assertFileContainsAll(
 		'readonly worktreePath?: URI;',
 	],
 	'receipt parity fields'
+);
+
+assertFileContainsAll(
+	'src/vs/sessions/services/evaluation/common/sessionEvaluationTypes.ts',
+	[
+		'readonly receipt: SessionActionReceipt;',
+	],
+	'receipt-backed evaluation'
+);
+
+assertMethodContainsAll(
+	'src/vs/sessions/services/autonomy/browser/sessionAutonomousExecutionService.ts',
+	'async executePlan(request: SessionAutonomousExecutionRequest): Promise<SessionAutonomousExecutionResult>',
+	[
+		'trace: {',
+		'const receipt = this._requireReceipt',
+	],
+	'autonomy receipt traceability'
+);
+
+assertNoPattern(
+	'src/vs/sessions/services/autonomy/browser/sessionAutonomousExecutionService.ts',
+	/recordStepResult\(/,
+	'autonomy runtime must not write per-step advisory memory directly.'
+);
+
+assertNoPattern(
+	'src/vs/sessions/services/memory/common/sessionExecutionMemoryService.ts',
+	/recordStepResult\(/,
+	'memory service contract must stay receipt-derived and must not expose per-step recorder APIs.'
 );
 
 assertFileContainsAll(

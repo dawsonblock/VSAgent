@@ -16,12 +16,12 @@ import { SessionCheckpoint } from '../../checkpoints/common/sessionCheckpointTyp
 import { ISessionEvaluationService } from '../../evaluation/common/sessionEvaluationService.js';
 import { AutonomyContinuationDecision, AutonomyStopReason } from '../common/sessionAutonomyTypes.js';
 import { ISessionPlanValidatorService } from '../../planning/common/sessionPlanValidatorService.js';
-import { isExecutableSessionPlanStepKind, SessionPlanCheckpointRequirement, SessionPlanStatus, SessionPlanStep } from '../../planning/common/sessionPlanTypes.js';
+import { isExecutableSessionPlanStepKind, isSessionPlanMutationRiskClass, SessionPlanCheckpointRequirement, SessionPlanStatus, SessionPlanStep } from '../../planning/common/sessionPlanTypes.js';
 import { ISessionsProvidersService } from '../../sessions/browser/sessionsProvidersService.js';
 import { ISessionAutonomousExecutionService, SessionAutonomousExecutionIssue, SessionAutonomousExecutionRequest, SessionAutonomousExecutionResult, SessionAutonomousStepResult } from '../common/sessionAutonomousExecutionService.js';
 import { ISessionBudgetService, SessionBudgetState } from '../common/sessionBudgetService.js';
 import { ISessionAutonomyPolicyService } from '../common/sessionAutonomyPolicyService.js';
-import { ISessionExecutionMemoryService } from '../../memory/common/sessionExecutionMemoryService.js';
+import { SessionActionReceipt } from '../../actions/common/sessionActionReceipts.js';
 
 export class SessionAutonomousExecutionService extends Disposable implements ISessionAutonomousExecutionService {
 	declare readonly _serviceBrand: undefined;
@@ -35,7 +35,6 @@ export class SessionAutonomousExecutionService extends Disposable implements ISe
 		@ISessionCheckpointService private readonly _checkpointService: ISessionCheckpointService,
 		@ISessionEvaluationService private readonly _evaluationService: ISessionEvaluationService,
 		@ISessionActionService private readonly _sessionActionService: ISessionActionService,
-		@ISessionExecutionMemoryService private readonly _sessionExecutionMemoryService: ISessionExecutionMemoryService,
 		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
@@ -112,7 +111,13 @@ export class SessionAutonomousExecutionService extends Disposable implements ISe
 					return this._stop(request, SessionPlanStatus.Stopped, AutonomyStopReason.BudgetExceeded, state, issues, reasons, stepResults);
 				}
 
-				if (nextStep.checkpointRequirement === SessionPlanCheckpointRequirement.Required) {
+				const checkpointRequired = this._requiresCheckpoint(nextStep);
+				if (checkpointRequired && nextStep.checkpointRequirement !== SessionPlanCheckpointRequirement.Required) {
+					issues.push({ stepId: nextStep.id, message: `Mutating step '${nextStep.id}' must create a checkpoint before execution.` });
+					return this._stop(request, SessionPlanStatus.Rejected, AutonomyStopReason.ValidationFailed, state, issues, reasons, stepResults);
+				}
+
+				if (checkpointRequired) {
 					checkpoint = this._checkpointService.createCheckpoint({
 						sessionId: request.session.sessionId,
 						providerId: request.session.providerId,
@@ -121,13 +126,25 @@ export class SessionAutonomousExecutionService extends Disposable implements ISe
 					});
 				}
 
-				const result = await this._sessionActionService.submitAction(request.session.sessionId, request.session.providerId, nextStep.action);
+				const tracedAction = {
+					...nextStep.action,
+					trace: {
+						planId: request.plan.id,
+						planStepId: nextStep.id,
+						checkpointId: checkpoint?.id,
+					},
+				};
+				const result = await this._sessionActionService.submitAction(request.session.sessionId, request.session.providerId, tracedAction);
 				state = this._budgetService.finalizeStep(state, nextStep, result);
+				const receipt = this._requireReceipt(request.session.sessionId, request.plan.id, nextStep, result, issues);
+				if (!receipt) {
+					return this._stop(request, SessionPlanStatus.Stopped, AutonomyStopReason.Interrupted, state, issues, reasons, stepResults);
+				}
 				const evaluation = this._evaluationService.evaluateStep({
 					plan: request.plan,
 					step: nextStep,
 					result,
-					receipt: result.receiptId ? this._getReceipt(request.session.sessionId, result.receiptId) : undefined,
+					receipt,
 					checkpoint,
 					budgetState: state,
 				});
@@ -141,7 +158,6 @@ export class SessionAutonomousExecutionService extends Disposable implements ISe
 					evaluation,
 				};
 				stepResults.push(stepResult);
-				this._sessionExecutionMemoryService.recordStepResult(request.plan, stepResult);
 
 				if (evaluation.decision === AutonomyContinuationDecision.Continue) {
 					completed.add(nextStep.id);
@@ -217,6 +233,30 @@ export class SessionAutonomousExecutionService extends Disposable implements ISe
 
 	private _getReceipt(sessionId: string, receiptId: string) {
 		return this._sessionActionService.getReceiptsForSession(sessionId).find(receipt => receipt.id === receiptId);
+	}
+
+	private _requiresCheckpoint(step: SessionPlanStep): boolean {
+		return step.checkpointRequirement === SessionPlanCheckpointRequirement.Required || step.riskClasses.some(isSessionPlanMutationRiskClass);
+	}
+
+	private _requireReceipt(sessionId: string, planId: string, step: SessionPlanStep, result: SessionAutonomousStepResult['result'], issues: SessionAutonomousExecutionIssue[]): SessionActionReceipt | undefined {
+		if (!result.receiptId) {
+			issues.push({ stepId: step.id, message: `Step '${step.id}' completed without an action receipt.` });
+			return undefined;
+		}
+
+		const receipt = this._getReceipt(sessionId, result.receiptId);
+		if (!receipt) {
+			issues.push({ stepId: step.id, message: `Step '${step.id}' could not load receipt '${result.receiptId}'.` });
+			return undefined;
+		}
+
+		if (receipt.planId !== planId || receipt.planStepId !== step.id) {
+			issues.push({ stepId: step.id, message: `Receipt '${receipt.id}' does not match plan '${planId}' step '${step.id}'.` });
+			return undefined;
+		}
+
+		return receipt;
 	}
 
 	private _stop(request: SessionAutonomousExecutionRequest, status: SessionPlanStatus, stopReason: AutonomyStopReason, budgetState: SessionBudgetState, issues: readonly SessionAutonomousExecutionIssue[], reasons: readonly string[], stepResults: readonly SessionAutonomousStepResult[]): SessionAutonomousExecutionResult {

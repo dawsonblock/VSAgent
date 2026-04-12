@@ -6,6 +6,9 @@
 import { IObservable } from '../../../../base/common/observable.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { SessionAutonomousExecutionResult, SessionAutonomousStepResult } from '../../autonomy/common/sessionAutonomousExecutionService.js';
+import { SessionAutonomyMode } from '../../autonomy/common/sessionAutonomyTypes.js';
+import { SessionBudgetState } from '../../autonomy/common/sessionBudgetService.js';
+import { SessionActionReceipt } from '../../actions/common/sessionActionReceipts.js';
 import { SessionPlan, SessionPlanStatus } from '../../planning/common/sessionPlanTypes.js';
 
 export const enum SessionExecutionPhase {
@@ -28,12 +31,15 @@ export interface SessionExecutionProgress {
 export interface SessionExecutionMemoryEntry {
 	readonly sessionId: string;
 	readonly providerId: string;
+	readonly mode?: SessionAutonomyMode;
 	readonly intent?: string;
 	readonly summary?: string;
 	readonly phase: SessionExecutionPhase;
 	readonly plan?: SessionPlan;
 	readonly result?: SessionAutonomousExecutionResult;
+	readonly budgetState?: SessionBudgetState;
 	readonly progress?: SessionExecutionProgress;
+	readonly lastReceipt?: SessionActionReceipt;
 	readonly lastStepResult?: SessionAutonomousStepResult;
 	readonly errorMessage?: string;
 	readonly startedAt: number;
@@ -45,10 +51,9 @@ export interface ISessionExecutionMemoryService {
 
 	getSessionEntry(sessionId: string): IObservable<SessionExecutionMemoryEntry | undefined>;
 	getSessionEntryValue(sessionId: string): SessionExecutionMemoryEntry | undefined;
-	beginPlanning(request: { sessionId: string; providerId: string; intent: string; summary?: string }): void;
+	beginPlanning(request: { sessionId: string; providerId: string; mode: SessionAutonomyMode; intent: string; summary?: string }): void;
 	setPlan(plan: SessionPlan): void;
 	beginExecution(plan: SessionPlan): void;
-	recordStepResult(plan: SessionPlan, stepResult: SessionAutonomousStepResult): void;
 	completeExecution(plan: SessionPlan, result: SessionAutonomousExecutionResult): void;
 	failExecution(request: { sessionId: string; providerId: string; intent?: string; summary?: string; plan?: SessionPlan; message: string }): void;
 	replaceSessionEntry(previousSessionId: string, nextSessionId: string, providerId: string): void;
