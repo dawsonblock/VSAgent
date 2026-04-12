@@ -123,7 +123,17 @@ class SessionsAutonomyStatusAccessibleView implements IAccessibleViewImplementat
 		return new AccessibleContentProvider(
 			AccessibleViewProviderId.SessionsAutonomyStatus,
 			{ type: AccessibleViewType.View },
-			() => formatSessionAutonomyStatusText(activeSession.title.get(), entry, sessionsManagementService.activeAdvisoryExecutionSummary.get()),
+			() => {
+				const currentActiveSession = sessionsManagementService.activeSession.get();
+				const currentEntry = sessionsManagementService.activeAdvisoryExecutionState.get();
+				const currentSummary = sessionsManagementService.activeAdvisoryExecutionSummary.get();
+
+				if (!currentActiveSession || !currentEntry) {
+					return localize('sessionsAutonomyStatus.empty', "No active advisory execution status is available.");
+				}
+
+				return formatSessionAutonomyStatusText(currentActiveSession.title.get(), currentEntry, currentSummary);
+			},
 			() => viewsService.getActiveViewWithId<SessionAutonomyStatusView>(SESSION_AUTONOMY_STATUS_VIEW_ID)?.focus(),
 			AccessibilityVerbositySettingId.SessionsAutonomy,
 		);
